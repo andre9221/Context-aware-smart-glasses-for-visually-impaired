@@ -1,0 +1,9 @@
+# Module 1 (Andrea) — sensor fusion & ego-motion
+numpy
+smbus2              # I2C access on the Raspberry Pi (also used by Module 3)
+vl53l5cx-ctypes      # ST VL53L5CX ULD Python bindings (firmware upload + ranging)
+
+# Add Module 2 (Dhivyashree) and Module 3 (Tejaswi) dependencies below as you build:
+# ultralytics        # YOLOv8n
+# opencv-python
+# firebase-admin
