@@ -4,3 +4,7 @@ __pycache__/
 serviceAccountKey.json
 *.csv
 results/
+
+# Local plans and temporary test images
+PROJECT_PLAN.md
+sim_hud_sample.png

@@ -1,9 +1,13 @@
 # Module 1 (Andrea) — sensor fusion & ego-motion
-numpy
+numpy>=1.24.0
 smbus2              # I2C access on the Raspberry Pi (also used by Module 3)
-vl53l5cx-ctypes      # ST VL53L5CX ULD Python bindings (firmware upload + ranging)
+vl53l5cx-ctypes     # ST VL53L5CX ULD Python bindings (firmware upload + ranging)
 
-# Add Module 2 (Dhivyashree) and Module 3 (Tejaswi) dependencies below as you build:
-# ultralytics        # YOLOv8n
-# opencv-python
+# Module 2 (Dhivyashree) — dual-stage AI vision & TTC pipeline
+pillow>=9.5.0
+opencv-python>=4.8.0
+ultralytics>=8.0.0
+pytest>=7.0.0
+
+# Module 3 (Tejaswi) — haptics & caregiver dashboard
 # firebase-admin
