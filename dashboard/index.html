@@ -1,20 +1,708 @@
-<!-- Dashboard — Caregiver & Researcher Real-Time Web Dashboard -->
-<!-- Owner: Tejaswi E. (24BCE5518) -->
-<!--
-  Place your files here:
-    index.html    - Dashboard markup and responsive layout
-    style.css     - Glassmorphism dark-mode styling
-    app.js        - Firebase Web SDK real-time sync & Chart.js logic
-    assets/       - Icons and UI assets
--->
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Glasses Dashboard - Placeholder</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Glasses - Caregiver & Researcher Telemetry Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=visioncare-patient-notifications-compact-20261022">
+  <link rel="stylesheet" href="/static/spotlight.css?v=visioncare-spotlight-visible-20261022">
+  <!-- Chart.js CDN for live research analytics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
-    <h1>Dashboard placeholder — replace this file</h1>
+  <!-- =========================================================================
+       LOGIN AUTHENTICATION MODAL OVERLAY
+       ========================================================================= -->
+  <div class="login-overlay" id="loginModalOverlay">
+    <div class="login-card glass-card">
+      <div class="login-header">
+        <div class="logo-orb-large"></div>
+        <h2 class="login-title">CONTEXT-AWARE SMART GLASSES</h2>
+        <p class="login-subtitle">Caregiver & Academic Research Portal</p>
+      </div>
+
+      <!-- Login Form -->
+      <form id="loginForm" class="login-form">
+        <div class="input-group">
+          <label for="inputUsername">Username or Email</label>
+          <div class="input-wrapper">
+            <span class="input-icon">👤</span>
+            <input type="text" id="inputUsername" placeholder="Enter username or email" required
+              autocomplete="username">
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="inputPassword">Password</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="inputPassword" placeholder="Enter password" required
+              autocomplete="current-password">
+            <button type="button" class="btn-toggle-pwd" id="btnTogglePwd" title="Show/Hide password">👁️</button>
+          </div>
+        </div>
+
+        <div class="login-error-msg" id="loginErrorMessage" style="display: none;"></div>
+
+        <button type="submit" class="btn-login" id="btnLoginSubmit">
+          <span id="loginBtnText">Sign In to Dashboard</span>
+          <span class="btn-spinner" id="loginSpinner" style="display: none;"></span>
+        </button>
+
+        <div class="login-divider">
+          <span>OR 1-CLICK QUICK ACCESS</span>
+        </div>
+
+        <!-- Quick Demo Login Buttons -->
+        <div class="quick-logins">
+          <button type="button" class="btn-quick-login interactive-hover-button" id="btnQuickPatient" aria-label="Login as Patient">
+            <span class="interactive-button-surface" aria-hidden="true"></span>
+            <span class="interactive-button-label"><span>⚡</span> Login as Patient</span>
+            <span class="interactive-button-reveal" aria-hidden="true">Login as Patient <span>→</span></span>
+          </button>
+          <button type="button" class="btn-quick-login interactive-hover-button" id="btnQuickDoctor" aria-label="Login as Doctor">
+            <span class="interactive-button-surface" aria-hidden="true"></span>
+            <span class="interactive-button-label"><span>⚡</span> Login as Doctor</span>
+            <span class="interactive-button-reveal" aria-hidden="true">Login as Doctor <span>→</span></span>
+          </button>
+          <button type="button" class="btn-quick-login interactive-hover-button" id="btnQuickCaregiver" aria-label="Login as Primary Caregiver">
+            <span class="interactive-button-surface" aria-hidden="true"></span>
+            <span class="interactive-button-label"><span>⚡</span> Login as Primary Caregiver</span>
+            <span class="interactive-button-reveal" aria-hidden="true">Login as Primary Caregiver <span>→</span></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MAIN DASHBOARD APPLICATION CONTAINER (Hidden until authenticated)
+       ========================================================================= -->
+  <div class="app-container" id="mainDashboardApp">
+    <!-- Top System Telemetry Bar -->
+    <header class="status-header glass-card">
+      <div class="brand">
+        <div class="logo-orb"></div>
+        <div>
+          <h1 class="system-title">CONTEXT-AWARE SMART GLASSES</h1>
+          <p class="system-subtitle">Kinematic Ego-Motion & Spatio-Tactile Assistive Ecosystem</p>
+        </div>
+      </div>
+
+      <div class="telemetry-badges">
+        <div class="badge badge-online" id="statusBadge">
+          <span class="pulse-dot"></span>
+          <span id="systemStatusText">ONLINE</span>
+        </div>
+        <div class="badge badge-mode" id="modeBadge">
+          <span class="badge-label">MODE:</span>
+          <span class="badge-value" id="operationMode">LIVE (Webcam Mode)</span>
+        </div>
+        <div class="badge badge-metric">
+          <span class="badge-label">LATENCY:</span>
+          <span class="badge-value" id="systemLatency">18.4 ms</span>
+        </div>
+        <div class="badge badge-metric">
+          <span class="badge-label">BATTERY:</span>
+          <span class="badge-value" id="batteryLevel">88% (3.9V)</span>
+        </div>
+        <div class="badge badge-metric">
+          <span class="badge-label">SESSION:</span>
+          <span class="badge-value" id="sessionTimer">00:00:00</span>
+        </div>
+
+        <!-- User Profile Pill & Logout -->
+        <div class="user-profile-badge" id="userProfileBadge">
+          <span class="user-avatar" id="userAvatar">🔬</span>
+          <div class="user-details">
+            <span class="user-name" id="userName">Authorized User</span>
+            <span class="user-role" id="userRole">Lead Researcher</span>
+          </div>
+          <button type="button" class="btn-logout" id="btnLogout" title="Sign out">
+            <span>⏻</span> Logout
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Caregiver portal: focused on the patient's location, safety and device status. -->
+    <section class="caregiver-portal" id="caregiverPortal" aria-label="Primary caregiver dashboard">
+      <aside class="care-sidebar">
+        <a class="care-brand" href="#dashboard" aria-label="VisionCare home">
+          <span class="care-brand-mark">V</span><span>Vision<span>Care</span></span>
+        </a>
+        <button class="care-menu-toggle" id="careMenuToggle" aria-label="Toggle navigation">☰</button>
+        <nav class="care-nav" aria-label="Caregiver navigation">
+          <p class="care-nav-label">MONITOR</p>
+          <button class="care-nav-item active" data-page="dashboard"><span>◈</span> Dashboard</button>
+          <button class="care-nav-item" data-page="camera"><span>📷</span> Live Camera POV <b class="care-alert-count live-pill">LIVE</b></button>
+          <button class="care-nav-item" data-page="gps"><span>●</span> GPS Location</button>
+          <p class="care-nav-label">SAFETY</p>
+          <button class="care-nav-item" data-page="traffic"><span>▣</span> Traffic &amp; Safety <b class="care-alert-count">1</b></button>
+          <button class="care-nav-item" data-page="wifi"><span>⌁</span> Glasses WiFi Data</button>
+          <p class="care-nav-label">REPORTS</p>
+          <button class="care-nav-item" data-page="reports"><span>▤</span> Patient Reports</button>
+        </nav>
+        <div class="care-profile"><span class="care-avatar">MR</span><span><strong>Maria Rivera</strong><small>Parent / Guardian</small></span><button id="careLogout" title="Sign out">↪</button></div>
+      </aside>
+
+      <div class="care-main">
+        <header class="care-topbar">
+          <h1 id="carePageTitle">Dashboard</h1>
+          <div class="care-top-actions"><span class="glasses-connected"><i></i> Glasses Connected</span><div class="doctor-notification-wrap"><button class="care-notifications" id="careNotificationsButton" aria-label="Notifications, 3 unread" aria-controls="careNotifications" aria-expanded="false">♧<b id="careNotificationCount">3</b></button><section class="doctor-notifications" id="careNotifications" aria-label="Caregiver notifications" hidden><header><strong>Notifications</strong><button type="button" id="markCareNotificationsRead">Mark all read</button></header><div class="doctor-notification-list"><button type="button" class="doctor-notification is-unread" data-care-notification data-unread="true" data-page="traffic"><span class="doctor-notification-icon critical">!</span><span class="doctor-notification-copy"><strong>Critical traffic alert</strong><small>Alex is near MG Road &amp; Brigade Road Junction</small></span><time>2 min ago</time></button><button type="button" class="doctor-notification is-unread" data-care-notification data-unread="true" data-page="gps"><span class="doctor-notification-icon appointment">⌖</span><span class="doctor-notification-copy"><strong>Location update</strong><small>Alex is walking near MG Road</small></span><time>8 min ago</time></button><button type="button" class="doctor-notification is-unread" data-care-notification data-unread="true" data-page="wifi"><span class="doctor-notification-icon report">⌁</span><span class="doctor-notification-copy"><strong>Glasses status report</strong><small>Battery 72% · connection stable</small></span><time>21 min ago</time></button></div></section></div><time id="careClock">--:--:--</time></div>
+        </header>
+        <main class="care-page-wrap">
+          <section class="care-page active" data-view="dashboard">
+            <div class="care-kpis">
+              <article class="care-kpi accent-green"><span class="kpi-icon">⌖</span><div><small>PATIENT LOCATION</small><strong>Active</strong><em>GPS tracking live</em></div></article>
+              <article class="care-kpi accent-blue"><span class="kpi-icon">⌁</span><div><small>GLASSES WIFI</small><strong>-37 dBm</strong><em>Strong signal</em></div></article>
+              <article class="care-kpi accent-red"><span class="kpi-icon">▣</span><div><small>TRAFFIC ZONE</small><strong>HIGH</strong><em>Near busy junction</em></div></article>
+              <article class="care-kpi accent-amber"><span class="kpi-icon">⛨</span><div><small>SAFETY SCORE</small><strong>72%</strong><em>High traffic area</em></div></article>
+            </div>
+            <div class="care-overview-grid">
+              <article class="care-card map-card"><header><h2>⌖ &nbsp; Live GPS Location</h2></header><div class="care-map"><div class="map-roads"><i></i><i></i><i></i></div><span class="map-home">⌂ Home</span><span class="map-patient"><i></i><strong>Alex</strong><small>Walking · HIGH TRAFFIC</small></span><span class="map-risk-dot dot-a"></span><span class="map-risk-dot dot-b"></span><span class="map-risk-dot dot-c"></span><div class="map-position"><small>CURRENT POSITION</small><strong>12.9715°N, 77.5945°E</strong><small>SPEED</small><strong>0.8 km/h</strong></div><span class="map-demo-label">DEMO LOCATION</span></div></article>
+              <article class="care-card camera-preview-card"><header><h2>📷 &nbsp; Live POV Camera Feed (Pi Cam 3)</h2><span class="live-stream-badge"><i class="pulse-dot"></i> LIVE</span></header><div class="camera-preview-body"><div class="video-preview-wrapper" id="guardianCamPreviewWrap"><img id="guardianCamPreviewImg" class="live-stream-img" src="/api/video_feed" alt="Patient Live POV Feed"><div class="video-hud-overlay"><span class="hud-tag top-left">● 1080p · 30 FPS</span><span class="hud-tag top-right" id="guardianCamPreviewAf">AF: LOCKED</span><div class="hud-detection-box" id="guardianHudBox" style="display: none;"><span class="box-label" id="guardianHudLabel">Obstacle 1.2m</span></div></div></div><div class="camera-preview-footer"><div class="cam-stat"><small>CAMERA SENSOR</small><strong>Sony IMX708 PDAF</strong></div><div class="cam-stat"><small>DETECTION STATUS</small><strong id="guardianPreviewStatus" class="green-text">Active Monitoring</strong></div><button class="doctor-primary small-btn" id="btnOpenFullCamera" data-go-camera>View Full POV ➔</button></div></div></article>
+              <article class="care-card safety-card"><header><h2>⚠ &nbsp; Traffic &amp; Safety Alert</h2></header><div class="care-card-body"><div class="critical-alert"><span>⚠</span><div><strong>Critical Traffic Zone Detected</strong><p>Alex is approaching MG Road &amp; Brigade Road Junction, a busy area. Additional navigation assistance may be needed.</p></div></div><dl class="care-details"><div><dt>Intersection</dt><dd>MG Road &amp; Brigade Road Junction</dd></div><div><dt>Vehicles Nearby</dt><dd class="red-text">25</dd></div><div><dt>Pedestrians</dt><dd>14</dd></div><div><dt>Ambient Noise</dt><dd>68 dB</dd></div></dl></div></article>
+            </div>
+            <article class="care-card"><header><h2>◷ &nbsp; Recent Location History</h2></header><div class="care-table-wrap"><table class="care-table"><thead><tr><th>TIME</th><th>LOCATION</th><th>TRAFFIC</th><th>ALERT</th></tr></thead><tbody><tr><td>08:46 AM</td><td>MG Road &amp; Brigade Rd. Junction</td><td><b class="risk-tag high">HIGH</b></td><td><b class="risk-tag critical">Critical</b></td></tr><tr><td>08:38 AM</td><td>Church Street</td><td><b class="risk-tag moderate">MODERATE</b></td><td>None</td></tr><tr><td>08:18 AM</td><td>Cubbon Park — Main Trail</td><td><b class="risk-tag low">LOW</b></td><td>None</td></tr><tr><td>07:48 AM</td><td>Left Home</td><td><b class="risk-tag low">LOW</b></td><td>None</td></tr></tbody></table></div></article>
+          </section>
+
+          <!-- DEDICATED GUARDIAN CAMERA DASHBOARD (Pi Camera Module 3) -->
+          <section class="care-page" data-view="camera">
+            <div class="care-section-heading">
+              <div>
+                <h2>📷 &nbsp; Forward-Facing POV Stream — Raspberry Pi Camera Module 3</h2>
+                <p class="section-subtitle">Real-time video with Sony IMX708 autofocus, 120° Wide-Angle lens &amp; YOLOv8n spatial bounding overlays</p>
+              </div>
+              <div class="camera-top-controls">
+                <span class="camera-badge hardware-badge"><i class="badge-dot"></i> IMX708 Hardware Live</span>
+                <button class="doctor-action" id="btnCamSnapshot">📸 &nbsp; Take Snapshot</button>
+                <button class="doctor-action" id="btnToggleAiOverlay">🎯 &nbsp; AI Bounding Box: <b id="aiOverlayState">ON</b></button>
+                <button class="doctor-action" id="btnTogglePrivacy">🔒 &nbsp; Privacy Shutter</button>
+              </div>
+            </div>
+
+            <div class="camera-full-layout">
+              <div class="camera-feed-container" id="cameraFeedContainer">
+                <div class="video-viewport">
+                  <img id="guardianMainStreamImg" class="main-stream-video" src="/api/video_feed" alt="Pi Camera Module 3 Live Stream">
+                  <canvas id="cameraOverlayCanvas" class="camera-ai-canvas"></canvas>
+                  
+                  <div class="stream-hud-bar top-bar">
+                    <span class="hud-pill live-pill"><i class="pulse-dot"></i> LIVE BROADCAST</span>
+                    <span class="hud-pill device-pill">RPi 5 · CAM/DISP 0 (CSI)</span>
+                    <span class="hud-pill" id="camLatencyPill">Latency: 48ms</span>
+                    <span class="hud-pill" id="camFpsPill">30 FPS</span>
+                  </div>
+
+                  <div class="stream-hud-bar bottom-bar">
+                    <span class="hud-pill loc-pill">📍 MG Road &amp; Brigade Rd Junction</span>
+                    <span class="hud-pill" id="camAfPill">PDAF Continuous Autofocus: ENGAGED</span>
+                    <span class="hud-pill" id="camTtcPill">TTC: Safe (&gt;4.0s)</span>
+                  </div>
+
+                  <div class="privacy-overlay" id="privacyOverlay" style="display: none;">
+                    <div class="privacy-message">
+                      <span>🔒</span>
+                      <h3>Camera Stream Temporarily Paused</h3>
+                      <p>Guardian privacy shutter is engaged. Tactile haptic navigation remains fully active on glasses.</p>
+                      <button class="doctor-primary" id="btnResumeStream">Resume Live Stream</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="camera-playback-toolbar">
+                  <div class="toolbar-left">
+                    <button class="tool-btn" id="btnNightBoost" title="Low-light / Night Vision Boost">🌙 Low-Light Boost</button>
+                    <button class="tool-btn" id="btnTriggerAudioPing" title="Ping Glasses Audio">🔔 Ping Patient</button>
+                    <button class="tool-btn" id="btnFullscreenCam" title="Fullscreen">⛶ Fullscreen</button>
+                  </div>
+                  <div class="toolbar-right">
+                    <span class="toolbar-info" id="streamBandwidth">Bitrate: 2.4 Mbps</span>
+                    <span class="toolbar-info">Format: MJPEG / 1080p</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="camera-side-panel">
+                <article class="care-card">
+                  <header>
+                    <h2>🎯 &nbsp; Real-time AI Hazard Stream</h2>
+                  </header>
+                  <div class="ai-hazard-list" id="guardianHazardStream">
+                    <article class="hazard-item hazard-person">
+                      <span class="hazard-icon">🚶</span>
+                      <div class="hazard-info">
+                        <strong>Pedestrian Crossing Ahead</strong>
+                        <small>Sector: Center · Distance: 1.8m · Conf: 91%</small>
+                      </div>
+                      <b class="risk-tag moderate">Caution</b>
+                    </article>
+                    <article class="hazard-item hazard-vehicle">
+                      <span class="hazard-icon">🚗</span>
+                      <div class="hazard-info">
+                        <strong>Vehicle Approaching</strong>
+                        <small>Sector: Right · Distance: 3.2m · TTC: 2.8s</small>
+                      </div>
+                      <b class="risk-tag info">Notified</b>
+                    </article>
+                  </div>
+                </article>
+
+                <article class="care-card">
+                  <header>
+                    <h2>⚙️ &nbsp; Module 3 Camera Telemetry</h2>
+                  </header>
+                  <dl class="care-details">
+                    <div><dt>Sensor Hardware</dt><dd>Sony IMX708 (12MP)</dd></div>
+                    <div><dt>Autofocus Mode</dt><dd>Phase Detection (PDAF)</dd></div>
+                    <div><dt>Optical FoV</dt><dd>120° Wide Angle</dd></div>
+                    <div><dt>Hardware Bus</dt><dd>RPi 5 2-lane MIPI CSI</dd></div>
+                    <div><dt>Sensor Temp</dt><dd id="camSensorTemp">38.4°C</dd></div>
+                    <div><dt>AI Model</dt><dd>YOLOv8n-DynamicROI</dd></div>
+                  </dl>
+                </article>
+
+                <article class="care-card">
+                  <header>
+                    <h2>📸 &nbsp; Captured Snapshots</h2>
+                  </header>
+                  <div class="snapshot-gallery" id="snapshotGallery">
+                    <p class="empty-note">Click "Take Snapshot" to archive patient forward views.</p>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="care-page" data-view="gps">
+            <div class="care-section-heading"><h2>⌖ &nbsp; Patient GPS Location</h2><span class="gps-active">GPS Active</span></div>
+            <article class="care-card gps-map-card"><div class="care-map large-map"><div class="map-roads"><i></i><i></i><i></i></div><span class="map-home">⌂ Home</span><span class="map-patient"><i></i><strong>Alex</strong><small>Walking · HIGH TRAFFIC</small></span><span class="map-risk-dot dot-a"></span><span class="map-risk-dot dot-b"></span><span class="map-risk-dot dot-c"></span><div class="map-position"><small>LATITUDE</small><strong>12.971433°N</strong><small>LONGITUDE</small><strong>77.594693°E</strong><small>SPEED</small><strong>2.2 km/h — Walking</strong><small>HEADING</small><strong>245° (WSW)</strong></div><span class="map-demo-label">DEMO LOCATION</span></div></article>
+            <div class="care-two-column"><article class="care-card"><header><h2>⌁ &nbsp; Route Summary (Today)</h2></header><dl class="care-details"><div><dt>Total Distance</dt><dd>3.2 km</dd></div><div><dt>Steps</dt><dd>4,127</dd></div><div><dt>Active Time</dt><dd>42 min</dd></div><div><dt>Rest Stops</dt><dd>2</dd></div></dl></article><article class="care-card"><header><h2>◷ &nbsp; Location Timeline</h2></header><ol class="care-timeline"><li><time>08:30 AM</time>Left Home</li><li><time>08:45 AM</time>Cubbon Park Entrance</li><li><time>09:15 AM</time>Church Street</li><li class="timeline-alert"><time>Now</time>MG Road Junction (⚠)</li></ol></article></div>
+          </section>
+
+          <section class="care-page" data-view="traffic">
+            <div class="care-section-heading"><h2>▣ &nbsp; Traffic &amp; Critical Spot Analysis</h2></div>
+            <article class="care-card traffic-assessment"><header><h2>⚠ &nbsp; Current Traffic Assessment</h2></header><div class="care-card-body"><div class="critical-alert"><span>⚠</span><div><strong>CRITICAL — High Traffic Zone Detected</strong><p>Elevated vehicle and pedestrian density detected near MG Road &amp; Brigade Road Junction. Alex may need additional navigation assistance.</p></div></div><div class="traffic-stats"><div><small>VEHICLES DETECTED</small><strong class="red-text">24</strong></div><div><small>PEDESTRIANS</small><strong class="amber-text">10</strong></div><div><small>NOISE LEVEL</small><strong class="blue-text">77 dB</strong></div></div></div></article>
+            <div class="care-two-column"><article class="care-card"><header><h2>▥ &nbsp; Traffic Density (Last Hour)</h2></header><div class="density-chart"><div class="density-line vehicles-line"></div><div class="density-line pedestrians-line"></div><div class="density-legend"><span>Vehicles</span><span>Pedestrians</span></div><div class="density-labels"><span>0</span><span>10m</span><span>20m</span><span>30m</span><span>40m</span><span>50m</span><span>Now</span></div></div></article><article class="care-card"><header><h2>⌁ &nbsp; WiFi-Based Detection Source</h2></header><div class="care-card-body"><p class="care-copy">The glasses estimate nearby environmental density from devices detected during a scan.</p><dl class="care-details"><div><dt>WiFi Devices</dt><dd>37</dd></div><div><dt>BT Beacons</dt><dd>12</dd></div><div><dt>Scan Frequency</dt><dd>2.4 GHz + 5 GHz</dd></div><div><dt>Detection Radius</dt><dd>~50 m</dd></div></dl></div></article></div>
+            <article class="care-card"><header><h2>⚑ &nbsp; Known Critical Spots</h2></header><div class="care-table-wrap"><table class="care-table"><thead><tr><th>LOCATION</th><th>RISK LEVEL</th><th>TYPICAL TRAFFIC</th><th>LAST ALERT</th></tr></thead><tbody><tr><td><strong>MG Road &amp; Brigade Rd</strong></td><td><b class="risk-tag critical">Critical</b></td><td>Very High (Peak Hours)</td><td>2 min ago</td></tr><tr><td><strong>Residency Road Circle</strong></td><td><b class="risk-tag critical">Critical</b></td><td>High (All Day)</td><td>Yesterday</td></tr><tr><td><strong>Commercial Street Entrance</strong></td><td><b class="risk-tag moderate">Elevated</b></td><td>Moderate–High</td><td>3 days ago</td></tr><tr><td><strong>Indiranagar 100ft Road</strong></td><td><b class="risk-tag low">Moderate</b></td><td>Moderate</td><td>1 week ago</td></tr></tbody></table></div></article>
+          </section>
+
+          <section class="care-page" data-view="wifi">
+            <div class="care-section-heading"><h2>⌁ &nbsp; Glasses WiFi Data</h2></div>
+            <article class="care-card"><header><h2>▥ &nbsp; WiFi Connection Details</h2></header><div class="care-two-column care-info-grid"><dl class="care-details"><div><dt>SSID</dt><dd>VisionCare-Glasses-0471</dd></div><div><dt>Signal Strength</dt><dd>-35 dBm</dd></div><div><dt>Signal Quality</dt><dd class="green-text">● Excellent</dd></div><div><dt>Frequency</dt><dd>5.0 GHz</dd></div></dl><dl class="care-details"><div><dt>Battery</dt><dd>72%</dd></div><div><dt>Firmware</dt><dd>v2.1.4-stable</dd></div><div><dt>Temperature</dt><dd>27.5°C</dd></div><div><dt>Data Rate</dt><dd>~2.4 Mbps</dd></div></dl></div></article>
+            <article class="care-card"><header><h2>WiFi Environment Scan</h2></header><div class="care-card-body"><p class="care-copy">The glasses scan nearby WiFi networks and Bluetooth devices to estimate environmental density and support safety alerts.</p><div class="traffic-stats"><div><small>WIFI NETWORKS</small><strong class="blue-text">24</strong></div><div><small>BT DEVICES</small><strong>18</strong></div><div><small>VEHICLE WIFI</small><strong class="red-text">9</strong></div></div></div></article>
+            <article class="care-card"><header><h2>⌁ &nbsp; WiFi Signal History</h2></header><div class="signal-chart"><svg viewBox="0 0 900 170" role="img" aria-label="WiFi signal strength over the last 20 minutes"><path d="M0 52 L60 86 L120 68 L180 116 L240 61 L300 76 L360 98 L420 110 L480 69 L540 51 L600 86 L660 77 L720 62 L780 99 L840 80 L900 72" fill="none" stroke="var(--medical-blue)" stroke-width="4"/><path d="M0 52 L60 86 L120 68 L180 116 L240 61 L300 76 L360 98 L420 110 L480 69 L540 51 L600 86 L660 77 L720 62 L780 99 L840 80 L900 72 L900 170 L0 170Z" fill="rgba(30,137,181,.10)"/></svg><div class="density-labels"><span>20m ago</span><span>15m</span><span>10m</span><span>5m</span><span>Now</span></div></div></article>
+          </section>
+
+          <section class="care-page" data-view="reports"><div class="care-section-heading"><h2>▤ &nbsp; Patient Reports</h2></div><article class="care-card"><div class="care-table-wrap"><table class="care-table reports-table"><thead><tr><th>ID</th><th>REPORT</th><th>DATE</th><th>TYPE</th><th>AUTHOR</th></tr></thead><tbody><tr><td class="blue-text">RPT-001</td><td><strong>Visual Field Analysis Report</strong></td><td>2026-10-08</td><td><b class="risk-tag info">Clinical</b></td><td>Dr. Sarah Mitchell</td></tr><tr><td class="blue-text">RPT-002</td><td><strong>Smart Glasses Diagnostic Report</strong></td><td>2026-10-08</td><td><b class="risk-tag info">Device</b></td><td>Tech: James</td></tr><tr><td class="blue-text">RPT-003</td><td><strong>ERG Full-Field Test Results</strong></td><td>2026-09-20</td><td><b class="risk-tag info">Clinical</b></td><td>Dr. Priya Nair</td></tr><tr><td class="blue-text">RPT-004</td><td><strong>Monthly Navigation Performance</strong></td><td>2026-09-30</td><td><b class="risk-tag info">Analytics</b></td><td>System</td></tr><tr><td class="blue-text">RPT-005</td><td><strong>Obstacle Detection Accuracy Log</strong></td><td>2026-10-01</td><td><b class="risk-tag info">Device</b></td><td>System</td></tr></tbody></table></div></article></section>
+          <p class="care-demo-note">Illustrative caregiver dashboard · Sample patient and device values</p>
+        </main>
+      </div>
+    </section>
+
+    <!-- Doctor portal: patient overview, longitudinal records, care planning and reports. -->
+    <section class="doctor-portal" id="doctorPortal" aria-label="Doctor dashboard">
+      <aside class="care-sidebar">
+        <a class="care-brand" href="#doctor-dashboard" aria-label="VisionCare home"><span class="care-brand-mark">V</span><span>Vision<span>Care</span></span></a>
+        <button class="care-menu-toggle doctor-menu-toggle" id="doctorMenuToggle" aria-label="Toggle navigation">☰</button>
+        <nav class="care-nav" aria-label="Doctor navigation">
+          <p class="care-nav-label">OVERVIEW</p>
+          <button class="care-nav-item active" data-doctor-page="dashboard"><span>▥</span> Dashboard</button>
+          <button class="care-nav-item" data-doctor-page="preview"><span>♟</span> Patient Preview <b class="care-alert-count">4</b></button>
+          <p class="care-nav-label">PATIENT MANAGEMENT</p>
+          <button class="care-nav-item" data-doctor-page="data"><span>▣</span> Patient Data</button>
+          <button class="care-nav-item" data-doctor-page="history"><span>◷</span> Previous Data</button>
+          <button class="care-nav-item" data-doctor-page="appointments"><span>▦</span> Appointments <b class="care-alert-count">3</b></button>
+          <p class="care-nav-label">CLINICAL</p>
+          <button class="care-nav-item" data-doctor-page="reports"><span>▤</span> Reports &amp; Prescriptions</button>
+          <button class="care-nav-item" data-doctor-page="summary"><span>◉</span> Patient Summary</button>
+        </nav>
+        <div class="care-profile"><span class="care-avatar">SM</span><span><strong>Dr. Sarah Mitchell</strong><small>Doctor</small></span><button id="doctorLogout" title="Sign out">↪</button></div>
+      </aside>
+      <div class="care-main">
+        <header class="care-topbar"><h1 id="doctorPageTitle">Dashboard</h1><div class="care-top-actions"><span class="glasses-connected"><i></i> Glasses Connected</span><div class="doctor-notification-wrap"><button class="care-notifications" id="doctorNotificationsButton" aria-label="Notifications, 3 unread" aria-controls="doctorNotifications" aria-expanded="false">♧<b id="doctorNotificationCount">3</b></button><section class="doctor-notifications" id="doctorNotifications" aria-label="Doctor notifications" hidden><header><strong>Notifications</strong><button type="button" id="markDoctorNotificationsRead">Mark all read</button></header><div class="doctor-notification-list" id="doctorNotificationList"><button type="button" class="doctor-notification is-unread" data-doctor-notification data-unread="true" data-page="preview"><span class="doctor-notification-icon critical">!</span><span class="doctor-notification-copy"><strong>Critical hazard alert</strong><small>Alex Rivera · obstacle detected nearby</small></span><time>2 min ago</time></button><button type="button" class="doctor-notification is-unread" data-doctor-notification data-unread="true" data-page="appointments"><span class="doctor-notification-icon appointment">▦</span><span class="doctor-notification-copy"><strong>Upcoming appointment</strong><small>Visual Field Test · today at 10:30 AM</small></span><time>18 min ago</time></button><button type="button" class="doctor-notification is-unread" data-doctor-notification data-unread="true" data-page="reports"><span class="doctor-notification-icon report">▤</span><span class="doctor-notification-copy"><strong>New device report</strong><small>Smart Glasses Diagnostic Report is ready</small></span><time>1 hr ago</time></button></div></section></div><time id="doctorClock">--:--:--</time></div></header>
+        <main class="care-page-wrap">
+          <section class="care-page active" data-doctor-view="dashboard">
+            <div class="care-kpis doctor-kpis">
+              <article class="care-kpi accent-blue"><span class="kpi-icon">♟</span><div><small>TOTAL PATIENTS</small><strong>24</strong><em>↑ 3 this month</em></div></article>
+              <article class="care-kpi accent-green"><span class="kpi-icon">▣</span><div><small>ACTIVE DEVICES</small><strong>18</strong><em>↑ All reporting</em></div></article>
+              <article class="care-kpi accent-amber"><span class="kpi-icon">▦</span><div><small>THIS WEEK'S APPOINTMENTS</small><strong>7</strong><em>↓ 2 rescheduled</em></div></article>
+              <article class="care-kpi accent-red"><span class="kpi-icon">⚠</span><div><small>CRITICAL ALERTS (24H)</small><strong>3</strong><em>↓ Needs review</em></div></article>
+            </div>
+            <div class="care-two-column doctor-charts">
+              <article class="care-card"><header><h2>▥ &nbsp; Hazard Detection Trend (7 Days)</h2></header><div class="doctor-chart"><div class="doctor-chart-legend"><span class="legend-ped">Pedestrians</span><span class="legend-veh">Vehicles</span><span class="legend-obs">Obstacles</span></div><svg viewBox="0 0 700 245" role="img" aria-label="Hazard detection over the past seven days"><path d="M35 48 L140 105 L245 26 L350 73 L455 96 L560 133 L665 42" fill="none" stroke="#159b69" stroke-width="3"/><path d="M35 150 L140 173 L245 128 L350 158 L455 138 L560 179 L665 121" fill="none" stroke="#dc5962" stroke-width="3"/><path d="M35 205 L140 220 L245 193 L350 204 L455 218 L560 228 L665 203" fill="none" stroke="#c98624" stroke-width="3"/><g fill="#159b69"><circle cx="35" cy="48" r="4"/><circle cx="140" cy="105" r="4"/><circle cx="245" cy="26" r="4"/><circle cx="350" cy="73" r="4"/><circle cx="455" cy="96" r="4"/><circle cx="560" cy="133" r="4"/><circle cx="665" cy="42" r="4"/></g></svg><div class="doctor-chart-labels"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div></article>
+              <article class="care-card"><header><h2>◉ &nbsp; Patient Risk Distribution</h2></header><div class="risk-distribution"><div class="risk-donut"><div></div></div><ul><li><i class="low"></i>Low Risk</li><li><i class="moderate"></i>Moderate</li><li><i class="high"></i>High Risk</li><li><i class="critical"></i>Critical</li></ul></div></article>
+            </div>
+            <article class="care-card"><header><h2>◷ &nbsp; Recent Patient Activity</h2></header><div class="care-table-wrap"><table class="care-table"><thead><tr><th>PATIENT</th><th>DEVICE</th><th>LAST ACTIVE</th><th>ALERTS</th><th>STATUS</th></tr></thead><tbody><tr><td><strong>Alex Rivera</strong></td><td>VCG-2026-0471</td><td>2 min ago</td><td><b class="risk-tag critical">1 Critical</b></td><td><b class="risk-tag low">Online</b></td></tr><tr><td><strong>Priya Sharma</strong></td><td>VCG-2026-0322</td><td>15 min ago</td><td><b class="risk-tag moderate">2 Moderate</b></td><td><b class="risk-tag low">Online</b></td></tr><tr><td><strong>James Wilson</strong></td><td>VCG-2026-0198</td><td>1 hr ago</td><td>None</td><td><b class="risk-tag">Offline</b></td></tr><tr><td><strong>Nina Patel</strong></td><td>VCG-2026-0445</td><td>30 min ago</td><td>None</td><td><b class="risk-tag low">Online</b></td></tr></tbody></table></div></article>
+          </section>
+          <section class="care-page" data-doctor-view="preview"><div class="care-section-heading"><h2>♟ &nbsp; Patient Preview</h2><button class="doctor-action" data-doctor-action="search">⌕ &nbsp; Search</button></div><article class="care-card patient-list"><button class="patient-row selected" data-patient="Alex Rivera"><span class="patient-avatar avatar-blue">AR</span><span class="patient-info"><strong>Alex Rivera <b class="risk-tag low">Online</b></strong><small>ID: VCG-2026-0471 &nbsp; · &nbsp; Age: 17 &nbsp; · &nbsp; Retinitis Pigmentosa</small></span><span class="doctor-action" data-open-patient>→ &nbsp; View Details</span></button><button class="patient-row" data-patient="Priya Sharma"><span class="patient-avatar avatar-green">PS</span><span class="patient-info"><strong>Priya Sharma <b class="risk-tag low">Online</b></strong><small>ID: VCG-2026-0322 &nbsp; · &nbsp; Age: 22 &nbsp; · &nbsp; Glaucoma</small></span><span class="doctor-action" data-open-patient>→ &nbsp; View</span></button><button class="patient-row" data-patient="James Wilson"><span class="patient-avatar avatar-amber">JW</span><span class="patient-info"><strong>James Wilson <b class="risk-tag">Offline</b></strong><small>ID: VCG-2026-0198 &nbsp; · &nbsp; Age: 45 &nbsp; · &nbsp; Diabetic Retinopathy</small></span><span class="doctor-action" data-open-patient>→ &nbsp; View</span></button><button class="patient-row" data-patient="Nina Patel"><span class="patient-avatar avatar-red">NP</span><span class="patient-info"><strong>Nina Patel <b class="risk-tag low">Online</b></strong><small>ID: VCG-2026-0445 &nbsp; · &nbsp; Age: 31 &nbsp; · &nbsp; Optic Neuropathy</small></span><span class="doctor-action" data-open-patient>→ &nbsp; View</span></button></article></section>
+          <section class="care-page" data-doctor-view="data"><div class="care-section-heading"><h2>▣ &nbsp; Patient Data — <span class="selected-patient-name">Alex Rivera</span></h2><div><button class="doctor-action" data-doctor-action="print">⎙ &nbsp; Print</button> <button class="doctor-primary" data-doctor-action="export">↓ &nbsp; Export</button></div></div><div class="care-two-column"><article class="care-card"><header><h2>♟ &nbsp; Demographics</h2></header><dl class="care-details doctor-details"><div><dt>Full Name</dt><dd>Alex Rivera</dd></div><div><dt>Date of Birth</dt><dd>2009-03-15</dd></div><div><dt>Age</dt><dd>17 years</dd></div><div><dt>Gender</dt><dd>Male</dd></div><div><dt>Blood Type</dt><dd>O+</dd></div><div><dt>Insurance ID</dt><dd>INS-29384-RP</dd></div></dl></article><article class="care-card"><header><h2>◉ &nbsp; Clinical Profile</h2></header><dl class="care-details doctor-details"><div><dt>Condition</dt><dd>Retinitis Pigmentosa (RP)</dd></div><div><dt>Severity</dt><dd><b class="risk-tag moderate">Moderate–Severe</b></dd></div><div><dt>Visual Acuity</dt><dd>20/200 (OD), 20/160 (OS)</dd></div><div><dt>Visual Field</dt><dd>&lt; 20° central island</dd></div><div><dt>Allergies</dt><dd>Sulfonamides, Latex</dd></div><div><dt>Device ID</dt><dd>VCG-2026-0471</dd></div></dl></article></div><article class="care-card"><header><h2>♧ &nbsp; Smart Glasses Live Telemetry</h2></header><div class="care-card-body"><div class="care-kpis telemetry-kpis"><article class="care-kpi accent-green"><div><small>WIFI SIGNAL</small><strong>-36 dBm</strong></div></article><article class="care-kpi accent-blue"><div><small>BATTERY</small><strong>71%</strong></div></article><article class="care-kpi accent-amber"><div><small>OBSTACLES DETECTED</small><strong>6</strong></div></article><article class="care-kpi accent-red"><div><small>CRITICAL ALERTS</small><strong>0</strong></div></article></div></div></article></section>
+          <section class="care-page" data-doctor-view="history"><div class="care-section-heading"><h2>◷ &nbsp; Previous Visit Data — <span class="selected-patient-name">Alex Rivera</span></h2></div><article class="care-card"><div class="visit-list"><article><span class="visit-date"><strong>08</strong><small>OCT</small></span><div><h3>Quarterly Review &amp; Glasses Diagnostics</h3><p>◉ &nbsp; Dr. Sarah Mitchell &nbsp; ◷ &nbsp; 11:00 AM</p><p><b>Clinical Notes:</b> Vision stable. Adjusted detection threshold from 2.0m to 1.8m.</p></div></article><article><span class="visit-date"><strong>20</strong><small>SEP</small></span><div><h3>ERG Testing</h3><p>◉ &nbsp; Dr. Priya Nair &nbsp; ◷ &nbsp; 9:30 AM</p><p><b>Clinical Notes:</b> Rod response further diminished. Cone function preserved centrally.</p></div></article><article><span class="visit-date"><strong>15</strong><small>AUG</small></span><div><h3>Initial Smart Glasses Fitting</h3><p>◉ &nbsp; Dr. Sarah Mitchell &nbsp; ◷ &nbsp; 10:00 AM</p><p><b>Clinical Notes:</b> Custom fit completed. Glasses v2.1 firmware deployed. Patient trained on haptic feedback patterns.</p></div></article></div></article></section>
+          <section class="care-page" data-doctor-view="appointments"><div class="care-section-heading"><h2>▦ &nbsp; Upcoming Appointments</h2><button class="doctor-primary" data-doctor-action="schedule">＋ &nbsp; Schedule New</button></div><div class="appointment-list"><article><span class="appointment-date"><strong>22</strong><small>OCT</small></span><div><h3>Follow-up: Visual Field Test</h3><p>Dr. Sarah Mitchell &nbsp; · &nbsp; 10:30 AM &nbsp; · &nbsp; In-Person</p></div><b class="risk-tag info">Upcoming</b></article><article><span class="appointment-date"><strong>29</strong><small>OCT</small></span><div><h3>Smart Glasses Calibration</h3><p>Tech: James &nbsp; · &nbsp; 2:00 PM &nbsp; · &nbsp; In-Person</p></div><b class="risk-tag info">Upcoming</b></article><article><span class="appointment-date"><strong>05</strong><small>NOV</small></span><div><h3>Retina OCT Imaging</h3><p>Dr. Priya Nair &nbsp; · &nbsp; 9:00 AM &nbsp; · &nbsp; In-Person</p></div><b class="risk-tag info">Upcoming</b></article><article><span class="appointment-date"><strong>12</strong><small>NOV</small></span><div><h3>Telemedicine Check-in</h3><p>Dr. Sarah Mitchell &nbsp; · &nbsp; 4:30 PM &nbsp; · &nbsp; Telehealth</p></div><b class="risk-tag info">Upcoming</b></article></div><div class="care-section-heading"><h2>◷ &nbsp; Past Appointments</h2></div><div class="appointment-list past-list"><article><span class="appointment-date"><strong>08</strong><small>OCT</small></span><div><h3>Quarterly Review &amp; Glasses Diagnostics</h3><p>Dr. Sarah Mitchell &nbsp; · &nbsp; 11:00 AM</p></div><b class="risk-tag">Completed</b></article><article><span class="appointment-date"><strong>20</strong><small>SEP</small></span><div><h3>ERG Testing</h3><p>Dr. Priya Nair &nbsp; · &nbsp; 9:30 AM</p></div><b class="risk-tag">Completed</b></article></div></section>
+          <section class="care-page" data-doctor-view="reports"><div class="care-section-heading"><h2>▤ &nbsp; Reports &amp; Prescriptions — <span class="selected-patient-name">Alex Rivera</span></h2></div><article class="care-card"><header><h2>Clinical Reports</h2><button class="doctor-action" data-doctor-action="export-all">↓ &nbsp; Export All</button></header><div class="care-table-wrap"><table class="care-table"><thead><tr><th>ID</th><th>TITLE</th><th>DATE</th><th>TYPE</th><th>STATUS</th><th>AUTHOR</th></tr></thead><tbody><tr><td class="blue-text">RPT-001</td><td><strong>Visual Field Analysis Report</strong></td><td>2026-10-08</td><td><b class="risk-tag info">Clinical</b></td><td><b class="risk-tag low">Final</b></td><td>Dr. Sarah Mitchell</td></tr><tr><td class="blue-text">RPT-002</td><td><strong>Smart Glasses Diagnostic Report</strong></td><td>2026-10-08</td><td><b class="risk-tag info">Device</b></td><td><b class="risk-tag low">Final</b></td><td>Tech: James</td></tr><tr><td class="blue-text">RPT-003</td><td><strong>ERG Full-Field Test Results</strong></td><td>2026-09-20</td><td><b class="risk-tag info">Clinical</b></td><td><b class="risk-tag low">Final</b></td><td>Dr. Priya Nair</td></tr><tr><td class="blue-text">RPT-004</td><td><strong>Monthly Navigation Performance</strong></td><td>2026-09-30</td><td><b class="risk-tag info">Analytics</b></td><td><b class="risk-tag">Generated</b></td><td>System</td></tr><tr><td class="blue-text">RPT-005</td><td><strong>Obstacle Detection Accuracy Log</strong></td><td>2026-10-01</td><td><b class="risk-tag info">Device</b></td><td><b class="risk-tag">Auto</b></td><td>System</td></tr></tbody></table></div></article><div class="care-section-heading"><h2>▣ &nbsp; Prescriptions</h2></div><div class="care-two-column"><article class="care-card prescription-card"><header><h2>Active Prescription — Oct 2026</h2><small>2026-10-08</small></header><p>◉ &nbsp; Vitamin A Palmitate <span>15,000 IU — Once daily with food</span></p><p>◉ &nbsp; Omega-3 DHA <span>1000mg — Twice daily (AM/PM)</span></p><p>◉ &nbsp; Lutein + Zeaxanthin <span>20mg + 4mg — Once daily</span></p><p>◉ &nbsp; Dorzolamide 2% Drops <span>1 drop each eye — BID</span></p></article><article class="care-card prescription-card"><header><h2>Previous Prescription — Aug 2026</h2><small>2026-08-15</small></header><p>◉ &nbsp; Vitamin A Palmitate <span>10,000 IU — Once daily</span></p><p>◉ &nbsp; Omega-3 DHA <span>500mg — Once daily</span></p><p>◉ &nbsp; Artificial Tears (Preservative-Free) <span>PRN — As needed for dryness</span></p></article></div></section>
+          <section class="care-page" data-doctor-view="summary"><div class="care-section-heading"><h2>◉ &nbsp; Patient Summary — <span class="selected-patient-name">Alex Rivera</span></h2></div><div class="care-kpis doctor-kpis"><article class="care-kpi accent-blue"><span class="kpi-icon">▦</span><div><small>TOTAL VISITS</small><strong>12</strong></div></article><article class="care-kpi accent-green"><span class="kpi-icon">⌁</span><div><small>NAVIGATION SESSIONS</small><strong>847</strong></div></article><article class="care-kpi accent-amber"><span class="kpi-icon">⛨</span><div><small>HAZARDS AVOIDED</small><strong>2,341</strong></div></article><article class="care-kpi accent-purple"><span class="kpi-icon">◷</span><div><small>DEVICE UPTIME</small><strong>98.7%</strong></div></article></div><div class="care-two-column doctor-charts"><article class="care-card"><header><h2>▥ &nbsp; Monthly Hazard Detection</h2></header><div class="monthly-bars"><div class="bars-legend"><span>Hazards Detected</span><span>Hazards Avoided</span></div><div class="bars"><div><i style="height:50%"></i><i style="height:49%"></i><small>Jun</small></div><div><i style="height:46%"></i><i style="height:45%"></i><small>Jul</small></div><div><i style="height:65%"></i><i style="height:64%"></i><small>Aug</small></div><div><i style="height:61%"></i><i style="height:59%"></i><small>Sep</small></div><div><i style="height:72%"></i><i style="height:70%"></i><small>Oct</small></div></div></div></article><article class="care-card"><header><h2>♥ &nbsp; Condition Progression</h2></header><div class="progress-list"><div><label>Visual Acuity <em class="amber-text">Stable</em></label><i><b style="width:46%"></b></i></div><div><label>Visual Field <em class="red-text">Narrowing</em></label><i><b class="progress-red" style="width:25%"></b></i></div><div><label>Device Proficiency <em class="green-text">Excellent</em></label><i><b class="progress-green" style="width:92%"></b></i></div><div><label>Medication Compliance <em class="blue-text">Good</em></label><i><b class="progress-blue" style="width:85%"></b></i></div></div></article></div><article class="care-card"><header><h2>▣ &nbsp; Clinical Summary Notes</h2></header><div class="clinical-notes"><p><strong>Patient:</strong> Alex Rivera (17M) — Retinitis Pigmentosa (Moderate–Severe).</p><p><strong>Visual Status:</strong> Visual acuity remains stable at 20/200 OD, 20/160 OS. Visual field has continued to narrow, now &lt;20° central island. Rod function severely compromised; cone function preserved centrally.</p><p><strong>Device Performance:</strong> Smart Glasses VCG-2026-0471 performing with 98.7% uptime. Patient has adapted well to haptic feedback patterns and demonstrates high proficiency in outdoor navigation. Obstacle detection threshold adjusted from 2.0m to 1.8m per patient comfort.</p><p><strong>Recommendation:</strong> Continue current regimen. Next OCT imaging scheduled Nov 5. Consider genetic counseling referral for family planning discussion with guardians.</p></div></article></section>
+          <p class="care-demo-note">Illustrative doctor dashboard · Sample patient and device records</p>
+        </main>
+      </div>
+    </section>
+
+    <!-- Patient portal: personal device status, records, medications, and reminders. -->
+    <section class="patient-portal" id="patientPortal" aria-label="Patient dashboard">
+      <aside class="care-sidebar">
+        <a class="care-brand" href="#patient-dashboard" aria-label="VisionCare home"><span class="care-brand-mark">V</span><span>Vision<span>Care</span></span></a>
+        <button class="care-menu-toggle" id="patientMenuToggle" aria-label="Toggle navigation">☰</button>
+        <nav class="care-nav" aria-label="Patient navigation">
+          <p class="care-nav-label">MY HEALTH</p>
+          <button class="care-nav-item active" data-patient-page="dashboard"><span>⌂</span> Dashboard</button>
+          <button class="care-nav-item" data-patient-page="sync"><span>⟳</span> Glasses Sync</button>
+          <p class="care-nav-label">HEALTH RECORDS</p>
+          <button class="care-nav-item" data-patient-page="reports"><span>▣</span> My Reports <b class="care-alert-count">5</b></button>
+          <button class="care-nav-item" data-patient-page="appointments"><span>▦</span> Appointments <b class="care-alert-count">4</b></button>
+          <p class="care-nav-label">DAILY CARE</p>
+          <button class="care-nav-item" data-patient-page="medications"><span>◉</span> Medications <b class="care-alert-count">2</b></button>
+          <button class="care-nav-item" data-patient-page="reminders"><span>♧</span> Reminders</button>
+        </nav>
+        <div class="care-profile"><span class="care-avatar">AR</span><span><strong>Alex Rivera</strong><small>Patient</small></span><button id="patientLogout" title="Sign out">↪</button></div>
+      </aside>
+      <div class="care-main">
+        <header class="care-topbar"><h1 id="patientPageTitle">Dashboard</h1><div class="care-top-actions"><span class="glasses-connected"><i></i> Glasses Connected</span><div class="patient-notification-wrap"><button class="care-notifications" id="patientNotificationsButton" aria-label="Notifications" aria-expanded="false">♧<b id="patientNotificationCount">7</b></button><section class="patient-notifications" id="patientNotifications" aria-label="Notifications" hidden><header><strong>Notifications</strong><button id="clearPatientNotifications">Clear All</button></header><div class="patient-notification-list" id="patientNotificationList"><article><span>◉</span><div><strong>💊 Time to take your medication</strong><p>Lutein + Zeaxanthin — 20mg + 4mg with lunch</p></div><time>09:05 AM</time></article><article><span>◉</span><div><strong>💊 Time to take your medication</strong><p>Lutein + Zeaxanthin — 20mg + 4mg with lunch</p></div><time>09:05 AM</time></article><article><span>◉</span><div><strong>💊 Time to take your medication</strong><p>Lutein + Zeaxanthin — 20mg + 4mg with lunch</p></div><time>09:04 AM</time></article><article><span>◉</span><div><strong>💊 Time to take your medication</strong><p>Lutein + Zeaxanthin — 20mg + 4mg with lunch</p></div><time>08:56 AM</time></article></div></section></div><time id="patientClock">--:--:--</time></div></header>
+        <main class="care-page-wrap patient-page-wrap">
+          <section class="care-page active" data-patient-view="dashboard">
+            <div class="care-kpis patient-kpis">
+              <article class="care-kpi accent-blue"><span class="kpi-icon">⌂</span><div><small>GLASSES STATUS</small><strong>Connected</strong><em>↑ Signal: -42 dBm</em></div></article>
+              <article class="care-kpi accent-green"><span class="kpi-icon">◉</span><div><small>MEDS TODAY</small><strong>3/6</strong><em>3 taken, 3 upcoming</em></div></article>
+              <article class="care-kpi accent-amber"><span class="kpi-icon">▦</span><div><small>NEXT APPOINTMENT</small><strong>Oct 22</strong><em>Visual Field Test</em></div></article>
+              <article class="care-kpi accent-purple"><span class="kpi-icon">⛨</span><div><small>SAFETY SCORE</small><strong>94%</strong><em>↑ 2% this week</em></div></article>
+            </div>
+
+            <!-- =========================================================================
+                 PATIENT TOF (VL53L7CX) SPATIAL DEPTH & OBSTACLE PROXIMITY RADAR
+                 ========================================================================= -->
+            <article class="care-card patient-tof-card">
+              <header class="patient-tof-header">
+                <div>
+                  <h2>📡 &nbsp; Live Spatial Depth Radar (VL53L7CX Time-of-Flight)</h2>
+                  <p class="patient-tof-sub">64-Zone 8×8 Spatial LiDAR Depth Matrix · 3-Sector Spatio-Tactile Haptic Feedback</p>
+                </div>
+                <div class="patient-tof-actions">
+                  <button class="doctor-primary voice-readout-btn" id="btnPatientVoiceReadout" aria-label="Announce nearest obstacle with audio">
+                    🔊 &nbsp; Read Obstacles Aloud
+                  </button>
+                  <button class="doctor-action" id="btnToggleHighContrast" title="Toggle high-contrast display">
+                    👁️ &nbsp; High Contrast
+                  </button>
+                </div>
+              </header>
+
+              <div class="patient-tof-grid">
+                <!-- 1. Interactive 8x8 Spatial Depth Heatmap Matrix -->
+                <div class="tof-matrix-container">
+                  <div class="tof-matrix-heading">
+                    <span>8×8 SENSOR DEPTH MATRIX (45° FoV)</span>
+                    <span class="tof-matrix-status" id="tofRateLabel">30 Hz · Live I2C (0x29)</span>
+                  </div>
+                  
+                  <div class="tof-matrix-grid" id="patientTofGrid" role="grid" aria-label="8 by 8 distance matrix">
+                    <!-- 64 cells generated dynamically -->
+                  </div>
+
+                  <div class="tof-matrix-legend">
+                    <span class="legend-item"><i class="swatch critical"></i> &lt;0.5m Danger</span>
+                    <span class="legend-item"><i class="swatch warning"></i> 0.5–1.2m Caution</span>
+                    <span class="legend-item"><i class="swatch notice"></i> 1.2–2.0m Gated</span>
+                    <span class="legend-item"><i class="swatch clear"></i> &gt;2.0m Clear</span>
+                  </div>
+                </div>
+
+                <!-- 2. 3-Zone Proximity Gauges & Neckband Actuator States -->
+                <div class="tof-sectors-panel">
+                  <div class="sector-bars-title">
+                    <span>TACTILE DIRECTION BINS (NECKBAND ACTUATORS)</span>
+                    <span id="patientActiveHapticPill" class="badge-pill safe">MOTORS: QUIET</span>
+                  </div>
+
+                  <!-- Left Sector Bar (DRV2605L #1 CH4) -->
+                  <div class="sector-distance-card" id="sectorCardLeft">
+                    <div class="sec-card-header">
+                      <span class="sec-badge left">LEFT (CH5)</span>
+                      <strong class="sec-dist" id="secDistLeft">1.85 m</strong>
+                      <span class="sec-status" id="secStatusLeft">Clear</span>
+                    </div>
+                    <div class="sec-meter-track">
+                      <div class="sec-meter-fill fill-left" id="secMeterLeft" style="width: 45%;"></div>
+                    </div>
+                  </div>
+
+                  <!-- Center Sector Bar (DRV2605L #2 CH1) -->
+                  <div class="sector-distance-card warning-state" id="sectorCardCenter">
+                    <div class="sec-card-header">
+                      <span class="sec-badge center">CENTER (CH1)</span>
+                      <strong class="sec-dist" id="secDistCenter">0.78 m</strong>
+                      <span class="sec-status" id="secStatusCenter">Caution</span>
+                    </div>
+                    <div class="sec-meter-track">
+                      <div class="sec-meter-fill fill-center" id="secMeterCenter" style="width: 75%;"></div>
+                    </div>
+                  </div>
+
+                  <!-- Right Sector Bar (DRV2605L #3 CH2) -->
+                  <div class="sector-distance-card" id="sectorCardRight">
+                    <div class="sec-card-header">
+                      <span class="sec-badge right">RIGHT (CH2)</span>
+                      <strong class="sec-dist" id="secDistRight">2.40 m</strong>
+                      <span class="sec-status" id="secStatusRight">Clear</span>
+                    </div>
+                    <div class="sec-meter-track">
+                      <div class="sec-meter-fill fill-right" id="secMeterRight" style="width: 20%;"></div>
+                    </div>
+                  </div>
+
+                  <!-- Vertical Elevation Bins: Overhead & Ground Drop -->
+                  <div class="elevation-hazard-cards">
+                    <div class="elevation-card" id="cardOverheadHazard">
+                      <span class="elev-icon">🌲</span>
+                      <div>
+                        <strong>Overhead Hazard (Rows 0–2)</strong>
+                        <small id="elevOverheadText">No low-hanging branches or doorframes (&gt;2.2m)</small>
+                      </div>
+                      <b class="risk-tag low" id="elevOverheadTag">Clear</b>
+                    </div>
+
+                    <div class="elevation-card" id="cardGroundHazard">
+                      <span class="elev-icon">⚠️</span>
+                      <div>
+                        <strong>Ground / Drop-off (Rows 6–7)</strong>
+                        <small id="elevGroundText">Smooth pavement detected ahead</small>
+                      </div>
+                      <b class="risk-tag low" id="elevGroundTag">Safe Path</b>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <div class="care-two-column patient-dashboard-grid"><article class="care-card"><header><h2>◉ &nbsp; Today's Medications</h2></header><div class="patient-list-items"><article class="patient-list-item taken"><span>◉</span><div><strong>Vitamin A Palmitate</strong><small>15,000 IU with breakfast</small></div><time>08:00 ✓</time></article><article class="patient-list-item taken"><span>◉</span><div><strong>Omega-3 DHA (Morning)</strong><small>1000mg with breakfast</small></div><time>08:00 ✓</time></article><article class="patient-list-item taken"><span>⚕</span><div><strong>Dorzolamide Drops (AM)</strong><small>1 drop each eye</small></div><time>09:00 ✓</time></article><article class="patient-list-item"><span>◉</span><div><strong>Lutein + Zeaxanthin</strong><small>20mg + 4mg with lunch</small></div><time>13:00</time></article></div></article><article class="care-card"><header><h2>▦ &nbsp; Upcoming Appointments</h2></header><div class="appointment-list patient-appointments"><article><span class="appointment-date"><strong>22</strong><small>OCT</small></span><div><h3>Follow-up: Visual Field Test</h3><p>10:30 AM &nbsp; · &nbsp; Dr. Sarah Mitchell</p></div></article><article><span class="appointment-date"><strong>29</strong><small>OCT</small></span><div><h3>Smart Glasses Calibration</h3><p>2:00 PM &nbsp; · &nbsp; Tech: James</p></div></article><article><span class="appointment-date"><strong>05</strong><small>NOV</small></span><div><h3>Retina OCT Imaging</h3><p>9:00 AM &nbsp; · &nbsp; Dr. Priya Nair</p></div></article></div></article></div>
+            <article class="care-card"><header><h2>⟳ &nbsp; Data Sync Status</h2></header><div class="patient-sync-status"><p><i></i> All data synchronized with smart glasses <time>Last: 08:54:48</time></p><div class="care-kpis"><article class="care-kpi accent-green"><span class="kpi-icon">✓</span><div><small>REPORTS SYNCED</small><strong>5</strong></div></article><article class="care-kpi accent-blue"><span class="kpi-icon">▤</span><div><small>PRESCRIPTIONS</small><strong>2</strong></div></article><article class="care-kpi accent-amber"><span class="kpi-icon">♧</span><div><small>REMINDERS ACTIVE</small><strong>6</strong></div></article></div></div></article>
+          </section>
+          <section class="care-page" data-patient-view="sync"><div class="care-section-heading"><h2>⟳ &nbsp; Smart Glasses Data Sync</h2><button class="doctor-primary" id="patientForceSync">⟳ &nbsp; Force Sync</button></div><article class="care-card"><header><h2>⌁ &nbsp; Connection Status</h2></header><dl class="care-details"><div><dt>Device ID</dt><dd>VisionCare-Glasses-0471</dd></div><div><dt>Last Sync</dt><dd id="patientLastSync">09:09:13</dd></div><div><dt>Firmware</dt><dd>v2.1.4-stable</dd></div><div><dt>Status</dt><dd><b class="risk-tag low" id="patientSyncState">Synced</b></dd></div><div><dt>Battery</dt><dd>71%</dd></div><div><dt>Data Points</dt><dd>2,847 today</dd></div><div><dt>WiFi Signal</dt><dd>-38 dBm</dd></div><div><dt>Sync Frequency</dt><dd>Real-time (150ms)</dd></div></dl></article><article class="care-card"><header><h2>▦ &nbsp; Synced Data Categories</h2></header><div class="care-kpis patient-kpis"><article class="care-kpi accent-blue"><span class="kpi-icon">⌁</span><div><small>NAVIGATION DATA</small><strong>Synced</strong></div></article><article class="care-kpi accent-green"><span class="kpi-icon">⚠</span><div><small>HAZARD LOGS</small><strong>Synced</strong></div></article><article class="care-kpi accent-amber"><span class="kpi-icon">♥</span><div><small>HEALTH METRICS</small><strong>Synced</strong></div></article><article class="care-kpi accent-purple"><span class="kpi-icon">●</span><div><small>GPS TRACKS</small><strong>Synced</strong></div></article></div></article></section>
+          <section class="care-page" data-patient-view="reports"><div class="care-section-heading"><h2>▣ &nbsp; My Reports</h2></div><article class="care-card"><div class="care-table-wrap"><table class="care-table"><thead><tr><th>ID</th><th>REPORT</th><th>DATE</th><th>TYPE</th><th>STATUS</th></tr></thead><tbody><tr><td class="blue-text">RPT-001</td><td><strong>Visual Field Analysis Report</strong></td><td>2026-10-08</td><td><b class="risk-tag info">Clinical</b></td><td><b class="risk-tag low">Final</b></td></tr><tr><td class="blue-text">RPT-002</td><td><strong>Smart Glasses Diagnostic Report</strong></td><td>2026-10-08</td><td><b class="risk-tag info">Device</b></td><td><b class="risk-tag low">Final</b></td></tr><tr><td class="blue-text">RPT-003</td><td><strong>ERG Full-Field Test Results</strong></td><td>2026-09-20</td><td><b class="risk-tag info">Clinical</b></td><td><b class="risk-tag low">Final</b></td></tr><tr><td class="blue-text">RPT-004</td><td><strong>Monthly Navigation Performance</strong></td><td>2026-09-30</td><td><b class="risk-tag info">Analytics</b></td><td><b class="risk-tag">Generated</b></td></tr><tr><td class="blue-text">RPT-005</td><td><strong>Obstacle Detection Accuracy Log</strong></td><td>2026-10-01</td><td><b class="risk-tag info">Device</b></td><td><b class="risk-tag">Auto</b></td></tr></tbody></table></div></article></section>
+          <section class="care-page" data-patient-view="appointments"><div class="care-section-heading"><h2>▦ &nbsp; My Appointments</h2></div><div class="appointment-list patient-appointments"><article><span class="appointment-date"><strong>22</strong><small>OCT</small></span><div><h3>Follow-up: Visual Field Test</h3><p>Dr. Sarah Mitchell &nbsp; · &nbsp; 10:30 AM &nbsp; · &nbsp; In-Person</p></div><b class="risk-tag info">Upcoming</b></article><article><span class="appointment-date"><strong>29</strong><small>OCT</small></span><div><h3>Smart Glasses Calibration</h3><p>Tech: James &nbsp; · &nbsp; 2:00 PM &nbsp; · &nbsp; In-Person</p></div><b class="risk-tag info">Upcoming</b></article><article><span class="appointment-date"><strong>05</strong><small>NOV</small></span><div><h3>Retina OCT Imaging</h3><p>Dr. Priya Nair &nbsp; · &nbsp; 9:00 AM &nbsp; · &nbsp; In-Person</p></div><b class="risk-tag info">Upcoming</b></article><article><span class="appointment-date"><strong>12</strong><small>NOV</small></span><div><h3>Telemedicine Check-in</h3><p>Dr. Sarah Mitchell &nbsp; · &nbsp; 4:30 PM &nbsp; · &nbsp; Telehealth</p></div><b class="risk-tag info">Upcoming</b></article></div></section>
+          <section class="care-page" data-patient-view="medications"><div class="care-section-heading"><h2>◉ &nbsp; Medication Schedule</h2></div><article class="care-card"><header><h2>◷ &nbsp; Today's Schedule</h2><b class="risk-tag info">3 of 6 taken</b></header><div class="patient-list-items"><article class="patient-list-item taken"><span>◉</span><div><strong>Vitamin A Palmitate</strong><small>15,000 IU with breakfast</small></div><time>08:00 ✓ Taken</time></article><article class="patient-list-item taken"><span>◉</span><div><strong>Omega-3 DHA (Morning)</strong><small>1000mg with breakfast</small></div><time>08:00 ✓ Taken</time></article><article class="patient-list-item taken"><span>⚕</span><div><strong>Dorzolamide Drops (AM)</strong><small>1 drop each eye</small></div><time>09:00 ✓ Taken</time></article><article class="patient-list-item"><span>◉</span><div><strong>Lutein + Zeaxanthin</strong><small>20mg + 4mg with lunch</small></div><time>13:00 ◷ Pending</time></article><article class="patient-list-item"><span>◉</span><div><strong>Omega-3 DHA (Evening)</strong><small>1000mg with dinner</small></div><time>19:00 ◷ Pending</time></article><article class="patient-list-item"><span>⚕</span><div><strong>Dorzolamide Drops (PM)</strong><small>1 drop each eye</small></div><time>21:00 ◷ Pending</time></article></div></article><article class="care-card prescription-card"><header><h2>⚕ &nbsp; Active Prescription</h2></header><p>◉ &nbsp; Vitamin A Palmitate <span>15,000 IU — Once daily with food</span></p><p>◉ &nbsp; Omega-3 DHA <span>1000mg — Twice daily (AM/PM)</span></p><p>◉ &nbsp; Lutein + Zeaxanthin <span>20mg + 4mg — Once daily</span></p><p>◉ &nbsp; Dorzolamide 2% Drops <span>1 drop each eye — BID</span></p></article></section>
+          <section class="care-page" data-patient-view="reminders"><div class="care-section-heading"><h2>♧ &nbsp; Reminders &amp; Notifications</h2></div><article class="care-card"><header><h2>◉ &nbsp; Medication Reminders</h2></header><div class="patient-list-items"><article class="patient-list-item"><span>◉</span><div><strong>Lutein + Zeaxanthin</strong><small>20mg + 4mg — Take with lunch</small></div><time>1:00 PM</time></article><article class="patient-list-item"><span>◉</span><div><strong>Omega-3 DHA (Evening)</strong><small>1000mg — Take with dinner</small></div><time>7:00 PM</time></article><article class="patient-list-item"><span>⚕</span><div><strong>Dorzolamide 2% Drops</strong><small>1 drop each eye — Before bed</small></div><time>9:00 PM</time></article></div></article><article class="care-card"><header><h2>▦ &nbsp; Appointment Reminders</h2></header><div class="appointment-list patient-appointments"><article><span class="appointment-date"><strong>22</strong><small>OCT</small></span><div><h3>Follow-up: Visual Field Test</h3><p>10:30 AM &nbsp; · &nbsp; Dr. Sarah Mitchell</p></div></article><article><span class="appointment-date"><strong>29</strong><small>OCT</small></span><div><h3>Smart Glasses Calibration</h3><p>2:00 PM &nbsp; · &nbsp; Tech: James</p></div></article></div></article></section>
+          <p class="care-demo-note">Illustrative patient dashboard · Sample health and device records</p>
+        </main>
+      </div>
+    </section>
+
+    <!-- Main Grid Dashboard -->
+    <main class="dashboard-grid">
+      <!-- Section 1: 180° Spatial Radar & Ego-Motion Compensation -->
+      <section class="glass-card radar-card">
+        <div class="card-header">
+          <div class="header-title">
+            <span class="icon">🧭</span>
+            <h2>180° Spatial Radar & Head Kinematics</h2>
+          </div>
+          <div class="yaw-pill">
+            <span>Head Yaw:</span>
+            <strong id="headYawDisplay">+0.0°</strong>
+            <span class="sub-text">(Torso Corrected)</span>
+          </div>
+        </div>
+
+        <div class="radar-container">
+          <canvas id="spatialRadarCanvas" width="460" height="300"></canvas>
+          <div class="radar-sector-labels">
+            <span class="sec-lbl lbl-left">LEFT (0-2)</span>
+            <span class="sec-lbl lbl-center">CENTER (3-4)</span>
+            <span class="sec-lbl lbl-right">RIGHT (5-7)</span>
+          </div>
+        </div>
+
+        <div class="radar-footer">
+          <div class="stat-box">
+            <span class="stat-label">Critical Obstacle</span>
+            <span class="stat-val" id="criticalDistVal">-- m</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Interrupt Gate</span>
+            <span class="stat-val" id="interruptStateVal">IDLE</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Compute Savings</span>
+            <span class="stat-val stat-highlight" id="computeSavingsVal">--%</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Neckband Haptic State Visualizer -->
+      <section class="glass-card haptic-card">
+        <div class="card-header">
+          <div class="header-title">
+            <span class="icon">📳</span>
+            <h2>Neckband 3-Axis Spatio-Tactile Node Visualizer</h2>
+          </div>
+          <span class="badge-pill" id="urgencyPill">SAFE</span>
+        </div>
+
+        <div class="neckband-stage">
+          <div class="neckband-arc"></div>
+
+          <!-- Left LRA Node -->
+          <div class="lra-node" id="nodeLeft">
+            <div class="node-halo"></div>
+            <div class="node-core">
+              <span class="node-letter">L</span>
+            </div>
+            <span class="node-title">LEFT</span>
+            <span class="node-state" id="stateLeft">IDLE</span>
+          </div>
+
+          <!-- Center LRA Node -->
+          <div class="lra-node" id="nodeCenter">
+            <div class="node-halo"></div>
+            <div class="node-core">
+              <span class="node-letter">C</span>
+            </div>
+            <span class="node-title">CENTER</span>
+            <span class="node-state" id="stateCenter">IDLE</span>
+          </div>
+
+          <!-- Right LRA Node -->
+          <div class="lra-node" id="nodeRight">
+            <div class="node-halo"></div>
+            <div class="node-core">
+              <span class="node-letter">R</span>
+            </div>
+            <span class="node-title">RIGHT</span>
+            <span class="node-state" id="stateRight">IDLE</span>
+          </div>
+        </div>
+
+        <div class="waveform-info-card">
+          <div class="wv-row">
+            <span class="wv-label">Active Waveform:</span>
+            <strong class="wv-val" id="activeWaveformName">Strong Click - 100% (#1)</strong>
+          </div>
+          <div class="wv-row">
+            <span class="wv-label">Firing Cadence:</span>
+            <span class="wv-val" id="firingCadence">1.0 Hz (Gentle Ping)</span>
+          </div>
+          <div class="wv-row">
+            <span class="wv-label">Time-to-Collision (TTC):</span>
+            <span class="wv-val highlight-urgency" id="ttcVal">-- s</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2b: VL53L7CX 8x8 Depth Grid (cm) - LIVE SENSOR DATA -->
+      <section class="glass-card tof-grid-card">
+        <div class="card-header">
+          <div class="header-title">
+            <span class="icon">⬛</span>
+            <h2>VL53L7CX 8×8 Depth Grid (cm)</h2>
+          </div>
+          <span class="live-dot" title="Live I2C sensor"></span>
+        </div>
+        <div id="tofDepthGrid" class="tof-grid-container">
+          <p style="color:#6b7280;font-size:12px;grid-column:1/-1;">Waiting for sensor data...</p>
+        </div>
+        <div class="tof-grid-legend">
+          <span class="tof-legend-item danger-leg">■ &lt;30cm Danger</span>
+          <span class="tof-legend-item caution-leg">■ 30–100cm Caution</span>
+          <span class="tof-legend-item safe-leg">■ &gt;100cm Safe</span>
+          <span class="tof-legend-item oor-leg">■ OOR</span>
+        </div>
+      </section>
+
+      <!-- Section 3: Live Hazard Detection Stream -->
+      <section class="glass-card event-stream-card">
+        <div class="card-header">
+          <div class="header-title">
+            <span class="icon">📋</span>
+            <h2>Live Hazard Detection Stream</h2>
+          </div>
+          <span class="badge-count" id="eventCountBadge">0 Events</span>
+        </div>
+
+        <div class="table-container">
+          <table class="stream-table">
+            <thead>
+              <tr>
+                <th>TIME</th>
+                <th>CLASS</th>
+                <th>SECTOR</th>
+                <th>DISTANCE</th>
+                <th>TTC</th>
+                <th>WAVEFORM</th>
+                <th>URGENCY</th>
+              </tr>
+            </thead>
+            <tbody id="eventTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Section 4: Session Analytics & Research Data Export -->
+      <section class="glass-card analytics-card">
+        <div class="card-header">
+          <div class="header-title">
+            <span class="icon">📊</span>
+            <h2>Session Analytics & Publication Data</h2>
+          </div>
+          <div class="export-actions">
+            <button class="btn btn-export" id="btnExportCsv">
+              <span>📥</span> Export CSV
+            </button>
+            <button class="btn btn-export-json" id="btnExportJson">
+              <span>📄</span> Export JSON
+            </button>
+          </div>
+        </div>
+
+        <div class="analytics-charts-grid">
+          <div class="chart-wrapper">
+            <h3 class="chart-title">Hazard Class Distribution</h3>
+            <canvas id="hazardDistributionChart"></canvas>
+          </div>
+          <div class="chart-wrapper">
+            <h3 class="chart-title">TTC vs Approach Distance</h3>
+            <canvas id="ttcTimelineChart"></canvas>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Section 5: Live Webcam Sensor Feed (Floating PiP) -->
+      <div class="glass-card video-feed-card" id="videoFeedContainer">
+        <div class="video-header">
+          <span class="pulse-dot"></span>
+          <span class="video-title">Live Sensor View</span>
+        </div>
+        <div class="video-wrapper">
+          <img id="webcam-feed" src="/api/video_feed" alt="Waiting for webcam feed..." />
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="system-footer">
+      <span>Context-Aware Assistive Navigation System</span>
+      <span>Target: IEEE Sensors Journal / MDPI Sensors</span>
+    </footer>
+  </div>
+
+  <script src="app.js?v=visioncare-patient-notifications-compact-20261022"></script>
+  <script src="/static/spotlight.js?v=visioncare-spotlight-visible-20261022"></script>
 </body>
+
 </html>

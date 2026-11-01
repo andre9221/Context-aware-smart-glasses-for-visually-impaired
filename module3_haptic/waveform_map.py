@@ -1,99 +1,93 @@
-"""waveform_map.py
+"""
+TI DRV2605L ROM Waveform Mapping & Tactile Texture Presets
+Lead Researcher: Tejaswi E. (24BCE5518)
 
-Lookup table and helper functions for DRV2605L ROM effect IDs and repeat intervals
-based on hazard semantic classification and approach urgency.
-
-Target: IEEE Sensors Journal (Module 3 Spatio-Tactile Haptics).
+Maps 123 internal DRV2605L ROM waveforms to semantic hazard classes and TTC urgency tiers.
 """
 
-from __future__ import annotations
+from dataclasses import dataclass
+from typing import Dict, Optional
 
-import sys
-from pathlib import Path
-from typing import Optional, Tuple
+from config import (
+    WAVEFORM_SAFE_AWARENESS,
+    WAVEFORM_APPROACHING_ALERT,
+    WAVEFORM_IMMINENT_COLLISION,
+    WAVEFORM_OVERHEAD_HAZARD,
+    WAVEFORM_PERSON_SOFT,
+    WAVEFORM_VEHICLE_SHARP,
+)
 
-# Ensure config can be imported whether run from root or inside module3_haptic/
-try:
-    from config import (
-        SUPPORTED_CLASSES,
-        SUPPORTED_URGENCIES,
-        URGENCY_APPROACHING,
-        URGENCY_IMMINENT,
-        URGENCY_SAFE,
-        WAVEFORM_TABLE,
+
+@dataclass
+class WaveformMetadata:
+    id: int
+    name: str
+    description: str
+    duration_ms: int
+    sharpness: str  # "Gentle", "Sharp", "Buzz", "Click"
+
+
+# Key DRV2605L ROM Library Waveform Definitions
+WAVEFORM_LIBRARY: Dict[int, WaveformMetadata] = {
+    1: WaveformMetadata(1, "Strong Click - 100%", "Crisp singular click for safe presence", 40, "Click"),
+    2: WaveformMetadata(2, "Strong Click - 60%", "Soft singular click", 40, "Gentle"),
+    12: WaveformMetadata(12, "Triple Click - 100%", "Rapid triple pulse for approaching obstacle", 120, "Sharp"),
+    14: WaveformMetadata(14, "Strong Tick 1", "Brief directional tick", 25, "Sharp"),
+    15: WaveformMetadata(15, "Medium Click 1 - 100%", "Distinct double-beat for overhead hazard warning", 85, "Sharp"),
+    47: WaveformMetadata(47, "Buzz 1 - 100%", "Intense 20 Hz buzz for imminent collision", 250, "Buzz"),
+    48: WaveformMetadata(48, "Buzz 2 - 80%", "Firm buzz", 250, "Buzz"),
+    49: WaveformMetadata(49, "Buzz 3 - 60%", "Balanced 60% medium buzz for obstacle warning", 250, "Buzz"),
+    50: WaveformMetadata(50, "Buzz 4 - 40%", "Gentle buzz", 250, "Buzz"),
+    51: WaveformMetadata(51, "Buzz 5 - 20%", "Soft gentle buzz", 250, "Buzz"),
+    52: WaveformMetadata(52, "Pulsing Sharp 100%", "Repetitive urgent pulses", 180, "Buzz"),
+    64: WaveformMetadata(64, "Transition Hum 1 - 100%", "Smooth sinusoidal vibration for pedestrian courtesy", 150, "Gentle"),
+    70: WaveformMetadata(70, "Transition Click 1", "Soft transition click", 60, "Gentle"),
+    88: WaveformMetadata(88, "Alert 750ms", "Extended alert for emergency vehicle presence", 750, "Buzz"),
+    118: WaveformMetadata(118, "Long Buzz 100%", "Maximum continuous buzz warning", 500, "Buzz"),
+}
+
+
+def get_waveform_metadata(waveform_id: int) -> WaveformMetadata:
+    """Retrieve metadata or return a generic fallback."""
+    return WAVEFORM_LIBRARY.get(
+        waveform_id,
+        WaveformMetadata(waveform_id, f"Waveform #{waveform_id}", "Custom DRV2605L effect", 100, "Sharp")
     )
-except ImportError:
-    project_root = Path(__file__).resolve().parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    from config import (
-        SUPPORTED_CLASSES,
-        SUPPORTED_URGENCIES,
-        URGENCY_APPROACHING,
-        URGENCY_IMMINENT,
-        URGENCY_SAFE,
-        WAVEFORM_TABLE,
-    )
 
 
-def resolve_haptic_effect(
-    hazard_class: Optional[str], urgency: Optional[str]
-) -> Optional[Tuple[int, int]]:
-    """Resolve DRV2605L effect ID and repeat interval for a given hazard class and urgency.
-
-    Unknown or missing class must NOT default to person; returns None if invalid.
-    For alert effects (#15, #16), repeat_ms is guaranteed to be at least the effect duration.
-
-    Parameters:
-        hazard_class: Semantic class of obstacle ('person', 'vehicle', 'overhead', 'wall').
-        urgency: Urgency category ('imminent', 'approaching', 'safe').
-
-    Returns:
-        (effect_id, repeat_ms) if valid, or None if class or urgency is unrecognized/missing.
+def select_tactile_waveform(
+    hazard_class: str,
+    urgency_level: str,
+    is_overhead: bool = False,
+) -> WaveformMetadata:
     """
-    if not hazard_class or not urgency:
-        return None
-
-    if hazard_class not in WAVEFORM_TABLE:
-        return None
-
-    class_table = WAVEFORM_TABLE[hazard_class]
-    if urgency not in class_table:
-        return None
-
-    return class_table[urgency]
-
-
-def lookup(hazard_class: str, urgency: str) -> Tuple[int, int]:
-    """Lookup DRV2605L tactile effect ID and repeat interval in milliseconds.
-
-    Raises:
-        KeyError: If hazard_class or urgency is not supported.
+    Novelty 02 (Axis 3): Multi-Axis Texture Selection.
+    Selects distinct tactile texture based on hazard class and urgency level.
     """
-    effect = resolve_haptic_effect(hazard_class, urgency)
-    if effect is None:
-        if hazard_class not in WAVEFORM_TABLE:
-            raise KeyError(
-                f"Unsupported hazard class: {hazard_class!r}. "
-                f"Expected one of: {SUPPORTED_CLASSES}"
-            )
-        raise KeyError(
-            f"Unsupported urgency level: {urgency!r}. "
-            f"Expected one of: {SUPPORTED_URGENCIES}"
-        )
-    return effect
+    h_class = hazard_class.lower()
 
+    # Rule 1: Imminent Collision overrides texture with maximum alert Buzz
+    if urgency_level == "IMMINENT":
+        return get_waveform_metadata(WAVEFORM_IMMINENT_COLLISION)
 
-def get_waveform(hazard_class: str, urgency: str) -> Optional[Tuple[int, int]]:
-    """Alias for resolve_haptic_effect for backward compatibility."""
-    return resolve_haptic_effect(hazard_class, urgency)
+    # Rule 2: Overhead Hazard (e.g. tree branch, awning) uses distinct double-beat click
+    if is_overhead or h_class == "overhead_hazard":
+        return get_waveform_metadata(WAVEFORM_OVERHEAD_HAZARD)
 
+    # Rule 3: Fast or motorized vehicle (Car, Bus, Truck, Motorcycle) uses sharp pulse
+    if h_class in ("car", "truck", "bus", "motorcycle"):
+        if urgency_level == "APPROACHING":
+            return get_waveform_metadata(WAVEFORM_VEHICLE_SHARP)
+        return get_waveform_metadata(WAVEFORM_APPROACHING_ALERT)
 
-def is_valid_hazard_class(hazard_class: str) -> bool:
-    """Check if the provided hazard class is defined in the waveform library."""
-    return hazard_class in WAVEFORM_TABLE
+    # Rule 4: Pedestrian uses smooth soft transition
+    if h_class == "person":
+        if urgency_level == "APPROACHING":
+            return get_waveform_metadata(WAVEFORM_APPROACHING_ALERT)
+        return get_waveform_metadata(WAVEFORM_PERSON_SOFT)
 
-
-def is_valid_urgency(urgency: str) -> bool:
-    """Check if the provided urgency level is recognized."""
-    return urgency in SUPPORTED_URGENCIES
+    # Rule 5: Default based on urgency tier
+    if urgency_level == "APPROACHING":
+        return get_waveform_metadata(WAVEFORM_APPROACHING_ALERT)
+    else:
+        return get_waveform_metadata(WAVEFORM_SAFE_AWARENESS)

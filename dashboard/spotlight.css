@@ -1,0 +1,46 @@
+/* Cursor-following spotlight treatment adapted for the site's native HTML UI. */
+[data-spotlight-card] {
+  --spotlight-hue: 198;
+  --spotlight-color: 45 150 191;
+  position: relative;
+  isolation: isolate;
+  transition: box-shadow 180ms ease, outline-color 180ms ease;
+}
+
+[data-spotlight-card]::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    270px circle at var(--spotlight-x, 50%) var(--spotlight-y, 50%),
+    hsl(var(--spotlight-hue) 82% 67% / 0.46),
+    transparent 74%
+  );
+  transition: opacity 180ms ease;
+}
+
+[data-spotlight-card][data-spotlight-active="true"] {
+  outline: 1px solid hsl(var(--spotlight-hue) 66% 68% / 0.72);
+  box-shadow: 0 14px 34px hsl(var(--spotlight-hue) 48% 36% / 0.28), 0 0 0 3px hsl(var(--spotlight-hue) 70% 68% / 0.12), inset 0 0 0 1px hsl(var(--spotlight-hue) 78% 78% / 0.2);
+}
+
+[data-spotlight-card][data-spotlight-active="true"]::after {
+  opacity: 1;
+}
+
+[data-spotlight-card].accent-green { --spotlight-hue: 151; }
+[data-spotlight-card].accent-amber { --spotlight-hue: 37; }
+[data-spotlight-card].accent-red { --spotlight-hue: 355; }
+[data-spotlight-card].accent-purple { --spotlight-hue: 265; }
+[data-spotlight-card].patient-list-item.taken { --spotlight-hue: 151; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-spotlight-card],
+  [data-spotlight-card]::after {
+    transition: none;
+  }
+}

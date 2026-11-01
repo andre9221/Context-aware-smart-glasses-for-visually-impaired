@@ -1,31 +1,22 @@
 """
 Module 2: Dual-Stage AI Vision & Time-to-Collision (TTC) Engine
-Lead: Dhivyashree G J. (24BCE1516)
-
-Components:
-- ToFDepthGate: Stage 1 spatial interrupt gate & dynamic ROI frame cropper
-- CameraDriver: Unified camera capture wrapper with synthetic fallback
-- YOLOEngine: YOLOv8 Nano inference engine on cropped ROI
-- TTCEngine: Rolling approach rate & Time-to-Collision calculator
-- ClassMap: Hazard classification and severity weighting
-- sim_vision: Interactive visual simulation testbed with HUD
-- main_vision: Inter-process worker connecting Queue A to Queue B
+Lead Researcher: Dhivyashree G J. (24BCE1516)
+Novelty 02 & 03: Dynamic ROI Inference & Spatio-Tactile TTC
 """
 
-from .tof_gate import ToFDepthGate, GatingDecision
+from .tof_gate import ToFInterruptGate, RegionOfInterest
 from .camera_driver import CameraDriver
-from .yolo_engine import YOLOEngine, Detection
-from .ttc_engine import TTCEngine, TTCResult
-from .class_map import ClassMap, HazardSeverity
+from .yolo_engine import YOLOv8ROIEngine
+from .ttc_engine import TTCEngine, TTCAssessment
+from .class_map import CLASS_SEVERITY_WEIGHTS, get_class_name
 
 __all__ = [
-    "ToFDepthGate",
-    "GatingDecision",
+    "ToFInterruptGate",
+    "RegionOfInterest",
     "CameraDriver",
-    "YOLOEngine",
-    "Detection",
+    "YOLOv8ROIEngine",
     "TTCEngine",
-    "TTCResult",
-    "ClassMap",
-    "HazardSeverity",
+    "TTCAssessment",
+    "CLASS_SEVERITY_WEIGHTS",
+    "get_class_name",
 ]

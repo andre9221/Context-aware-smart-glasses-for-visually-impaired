@@ -1,0 +1,115 @@
+- generic [ref=e32]:
+  - banner [ref=e33]:
+    - generic [ref=e36]:
+      - heading "CONTEXT-AWARE SMART GLASSES" [level=1] [ref=e37]
+      - paragraph [ref=e38]: Kinematic Ego-Motion & Spatio-Tactile Assistive Ecosystem
+    - generic [ref=e39]:
+      - generic [ref=e40]: ONLINE
+      - generic [ref=e43]:
+        - generic [ref=e44]: "MODE:"
+        - generic [ref=e45]: SIMULATION (Zero-HW)
+      - generic [ref=e46]:
+        - generic [ref=e47]: "LATENCY:"
+        - generic [ref=e48]: 18.4 ms
+      - generic [ref=e49]:
+        - generic [ref=e50]: "BATTERY:"
+        - generic [ref=e51]: 88% (3.9V)
+      - generic [ref=e52]:
+        - generic [ref=e53]: "SESSION:"
+        - generic [ref=e54]: 00:01:08
+      - generic [ref=e55]:
+        - generic [ref=e56]: 🔬
+        - generic [ref=e57]:
+          - generic [ref=e58]: Andrea A. (24BCE1142)
+          - generic [ref=e59]: Lead Researcher
+        - button "⏻ Logout" [ref=e60] [cursor=pointer]:
+          - generic [ref=e61]: ⏻
+          - text: Logout
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - generic [ref=e66]: 🧭
+          - heading "180° Spatial Radar & Head Kinematics" [level=2] [ref=e67]
+        - generic [ref=e68]:
+          - generic [ref=e69]: "Head Yaw:"
+          - strong [ref=e70]: +0.0°
+          - generic [ref=e71]: (Torso Corrected)
+      - generic [ref=e74]:
+        - generic [ref=e75]: LEFT (0-2)
+        - generic [ref=e76]: CENTER (3-4)
+        - generic [ref=e77]: RIGHT (5-7)
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - generic [ref=e80]: Critical Obstacle
+          - generic [ref=e81]: "-- m"
+        - generic [ref=e82]:
+          - generic [ref=e83]: Interrupt Gate
+          - generic [ref=e84]: IDLE
+        - generic [ref=e85]:
+          - generic [ref=e86]: Compute Savings
+          - generic [ref=e87]: "--%"
+    - generic [ref=e88]:
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - generic [ref=e91]: 📳
+          - heading "Neckband 3-Axis Spatio-Tactile Node Visualizer" [level=2] [ref=e92]
+        - generic [ref=e93]: SAFE
+      - generic [ref=e94]:
+        - generic [ref=e95]:
+          - generic [ref=e96]: L
+          - generic [ref=e98]: LEFT
+          - generic [ref=e99]: IDLE
+        - generic [ref=e100]:
+          - generic [ref=e101]: C
+          - generic [ref=e103]: CENTER
+          - generic [ref=e104]: IDLE
+        - generic [ref=e105]:
+          - generic [ref=e106]: R
+          - generic [ref=e108]: RIGHT
+          - generic [ref=e109]: IDLE
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - generic [ref=e112]: "Active Waveform:"
+          - strong [ref=e113]: Strong Click - 100% (#1)
+        - generic [ref=e114]:
+          - generic [ref=e115]: "Firing Cadence:"
+          - generic [ref=e116]: 1.0 Hz (Gentle Ping)
+        - generic [ref=e117]:
+          - generic [ref=e118]: "Time-to-Collision (TTC):"
+          - generic [ref=e119]: "-- s"
+    - generic [ref=e120]:
+      - generic [ref=e121]:
+        - generic [ref=e122]:
+          - generic [ref=e123]: 📋
+          - heading "Live Hazard Detection Stream" [level=2] [ref=e124]
+        - generic [ref=e125]: 0 Events
+      - table [ref=e127]:
+        - rowgroup [ref=e128]:
+          - row [ref=e129]:
+            - columnheader "TIME" [ref=e130]
+            - columnheader "CLASS" [ref=e131]
+            - columnheader "SECTOR" [ref=e132]
+            - columnheader "DISTANCE" [ref=e133]
+            - columnheader "TTC" [ref=e134]
+            - columnheader "WAVEFORM" [ref=e135]
+            - columnheader "URGENCY" [ref=e136]
+        - rowgroup
+    - generic [ref=e137]:
+      - generic [ref=e138]:
+        - generic [ref=e139]:
+          - generic [ref=e140]: 📊
+          - heading "Session Analytics & Publication Data" [level=2] [ref=e141]
+        - generic [ref=e142]:
+          - button "📥 Export CSV" [ref=e143] [cursor=pointer]:
+            - generic [ref=e144]: 📥
+            - text: Export CSV
+          - button "📄 Export JSON" [ref=e145] [cursor=pointer]:
+            - generic [ref=e146]: 📄
+            - text: Export JSON
+      - generic [ref=e147]:
+        - heading "Hazard Class Distribution" [level=3] [ref=e149]
+        - heading "TTC vs Approach Distance" [level=3] [ref=e152]
+  - contentinfo [ref=e154]:
+    - generic [ref=e155]: "Project Team: Andrea A. (24BCE1142) · Dhivyashree G J. (24BCE1516) · Tejaswi E. (24BCE5518)"
+    - generic [ref=e156]: "Target: IEEE Sensors Journal / MDPI Sensors"

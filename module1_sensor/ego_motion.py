@@ -1,153 +1,216 @@
 """
-ego_motion.py
-Quaternion-based ego-motion compensation engine — Novelty 01.
+Novelty 01: Head-to-Torso Kinematic Transform Engine
+Lead Researcher: Andrea A. (24BCE1142)
 
-Re-projects the VL53L5CX's 64 head-frame obstacle vectors into the
-torso-fixed reference frame using a real-time quaternion rotation
-R(theta_head) built from IMU yaw/pitch (imu_driver.py). This corrects
-the azimuth error that would otherwise occur when the wearer turns
-their head without turning their torso (e.g. checking a blind
-corner), which would fire haptic motors on the wrong side of the
-neckband if left uncorrected.
-
-Design:
-  1. Build a static "zone direction table": for each of the 64 ToF
-     zones, its azimuth/elevation angle within the 90deg FoV, assuming
-     the sensor is boresighted straight ahead when head yaw/pitch = 0.
-  2. Each frame, build a unit quaternion q = q(yaw, pitch) from the IMU.
-  3. Rotate every zone's unit direction vector by q to get its
-     direction in the torso frame.
-  4. Recompute azimuth/elevation from the rotated vectors and pair
-     them back up with the (unchanged) distance measurement.
-
-compensate_frame_raw() reproduces the *uncorrected* baseline (as if
-the head never moved) and is used by ablation_study.py to quantify
-the WITH-vs-WITHOUT improvement for the paper.
+Implements real-time quaternion and rotation matrix operations to re-project
+64 Time-of-Flight depth vectors from the head-mounted frame into the fixed
+torso reference frame at 100 Hz.
 """
 
-import os as _os
-import sys as _sys
-_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-
+import math
+from dataclasses import dataclass
+from typing import List, Tuple, Dict, Any
 import numpy as np
 
-from config import TOF_GRID_SIZE, TOF_FOV_DEG
-
-_N = TOF_GRID_SIZE
-
-
-def _build_zone_directions():
-    """Static per-zone (azimuth_deg, elevation_deg) table for an N x N
-    grid spanning +/-FOV/2 on both axes, one angle per zone center."""
-    half_fov = TOF_FOV_DEG / 2.0
-    edges = np.linspace(-half_fov, half_fov, _N + 1)
-    centers = (edges[:-1] + edges[1:]) / 2.0       # N zone centers along one axis
-    az = np.tile(centers, (_N, 1))                          # columns -> azimuth (same across rows)
-    el = np.tile(centers[::-1].reshape(-1, 1), (1, _N))     # rows -> elevation; row 0 = top of FoV = most positive
-    return az, el  # each (N, N), degrees
+from config import (
+    TOF_GRID_ROWS,
+    TOF_GRID_COLS,
+    TOF_FOV_HORIZONTAL_DEG,
+    TOF_FOV_VERTICAL_DEG,
+)
 
 
-_ZONE_AZ_DEG, _ZONE_EL_DEG = _build_zone_directions()
+@dataclass
+class Quaternion:
+    """Hamiltonian Quaternion q = w + xi + yj + zk for 3D rotations."""
+    w: float = 1.0
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+
+    @classmethod
+    def from_euler(cls, yaw_rad: float, pitch_rad: float = 0.0, roll_rad: float = 0.0) -> "Quaternion":
+        """
+        Construct quaternion from Tait-Bryan Euler angles (Yaw-Pitch-Roll: Z-Y-X sequence).
+        yaw: rotation around Z-axis (head turn left/right)
+        pitch: rotation around X-axis (head nod up/down)
+        roll: rotation around Y-axis (head tilt)
+        """
+        cy = math.cos(yaw_rad * 0.5)
+        sy = math.sin(yaw_rad * 0.5)
+        cp = math.cos(pitch_rad * 0.5)
+        sp = math.sin(pitch_rad * 0.5)
+        cr = math.cos(roll_rad * 0.5)
+        sr = math.sin(roll_rad * 0.5)
+
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+        return cls(w, x, y, z)
+
+    def to_rotation_matrix(self) -> np.ndarray:
+        """Derive 3x3 orthonormal rotation matrix R from quaternion."""
+        w, x, y, z = self.w, self.x, self.y, self.z
+        return np.array([
+            [1.0 - 2.0 * (y*y + z*z),  2.0 * (x*y - z*w),        2.0 * (x*z + y*w)],
+            [2.0 * (x*y + z*w),        1.0 - 2.0 * (x*x + z*z),  2.0 * (y*z - x*w)],
+            [2.0 * (x*z - y*w),        2.0 * (y*z + x*w),        1.0 - 2.0 * (x*x + y*y)],
+        ], dtype=np.float64)
+
+    def rotate_vector(self, v: np.ndarray) -> np.ndarray:
+        """Rotate 3D Cartesian vector v = [x, y, z] by quaternion."""
+        R = self.to_rotation_matrix()
+        return np.dot(R, v)
 
 
-def _angles_to_unit_vectors(az_deg, el_deg):
-    """Spherical (az, el) -> unit vector in the sensor frame.
-    Convention: +X forward (boresight), +Y left, +Z up."""
-    az = np.radians(az_deg)
-    el = np.radians(el_deg)
-    x = np.cos(el) * np.cos(az)
-    y = np.cos(el) * np.sin(az)
-    z = np.sin(el)
-    return np.stack([x, y, z], axis=-1)  # (..., 3)
+@dataclass
+class SensorFrameVector:
+    """Obstacle vector in head-mounted sensor coordinate frame."""
+    row: int
+    col: int
+    raw_distance_m: float
+    azimuth_deg: float      # Horizontal angle relative to head line-of-sight
+    elevation_deg: float    # Vertical angle relative to head plane
+    x_head: float           # Lateral (positive = right)
+    y_head: float           # Forward (positive = forward)
+    z_head: float           # Vertical (positive = upward)
 
 
-def quat_multiply(q1, q2):
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return np.array([
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    ])
+@dataclass
+class TorsoFrameVector:
+    """Obstacle vector re-projected to torso reference frame."""
+    row: int
+    col: int
+    distance_m: float
+    x_torso: float
+    y_torso: float
+    z_torso: float
+    azimuth_torso_deg: float   # Azimuth relative to walking trajectory (torso frame)
+    elevation_torso_deg: float
+    head_yaw_deg: float        # Applied compensation yaw
 
 
-def quat_from_yaw_pitch(yaw_deg, pitch_deg):
-    """Unit quaternion (w, x, y, z) for head yaw (about +Z, up) composed
-    with pitch (about +Y, left): q = q_yaw * q_pitch (intrinsic)."""
-    yaw = np.radians(yaw_deg) / 2.0
-    pitch = np.radians(pitch_deg) / 2.0
-
-    q_yaw = np.array([np.cos(yaw), 0.0, 0.0, np.sin(yaw)])       # rotation about Z
-    q_pitch = np.array([np.cos(pitch), 0.0, np.sin(pitch), 0.0])  # rotation about Y
-    return quat_multiply(q_yaw, q_pitch)
-
-
-def quat_to_rotation_matrix(q):
-    """R(theta_head): 3x3 rotation matrix from a unit quaternion (w,x,y,z)."""
-    w, x, y, z = q
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-    ])
-
-
-def compensate_frame(distance_mm, yaw_deg, pitch_deg):
+class EgoMotionEngine:
     """
-    Core Novelty-01 transform: re-projects the 64 head-frame zone
-    vectors into the torso frame given the current IMU orientation.
-
-    Args:
-      distance_mm: (N, N) raw ToF distances for this frame.
-      yaw_deg, pitch_deg: current head orientation from imu_driver.update().
-
-    Returns dict with:
-      distance_mm   : unchanged (N, N) raw distances
-      azimuth_deg   : (N, N) CORRECTED azimuth in the torso frame
-      elevation_deg : (N, N) CORRECTED elevation in the torso frame
-      R             : the 3x3 rotation matrix used this frame (for logging)
+    Ego-Motion Kinematic Transform Engine.
+    Converts 64 raw VL53L7CX zones to torso-centered Cartesian and spherical vectors.
     """
-    q = quat_from_yaw_pitch(yaw_deg, pitch_deg)
-    R = quat_to_rotation_matrix(q)
 
-    sensor_vecs = _angles_to_unit_vectors(_ZONE_AZ_DEG, _ZONE_EL_DEG)  # (N, N, 3)
-    torso_vecs = sensor_vecs @ R.T                                     # (N, N, 3)
+    def __init__(self):
+        # Pre-compute beam optical angles for the 8x8 ToF grid
+        self._init_beam_geometry()
 
-    az_corr = np.degrees(np.arctan2(torso_vecs[..., 1], torso_vecs[..., 0]))
-    el_corr = np.degrees(np.arcsin(np.clip(torso_vecs[..., 2], -1.0, 1.0)))
+    def _init_beam_geometry(self):
+        """Compute nominal azimuth (phi) and elevation (theta) for each zone center."""
+        self.zone_azimuth_deg = np.zeros((TOF_GRID_ROWS, TOF_GRID_COLS), dtype=np.float64)
+        self.zone_elevation_deg = np.zeros((TOF_GRID_ROWS, TOF_GRID_COLS), dtype=np.float64)
 
-    return {
-        "distance_mm": distance_mm,
-        "azimuth_deg": az_corr,
-        "elevation_deg": el_corr,
-        "R": R,
-    }
+        h_step = TOF_FOV_HORIZONTAL_DEG / TOF_GRID_COLS
+        v_step = TOF_FOV_VERTICAL_DEG / TOF_GRID_ROWS
 
+        for r in range(TOF_GRID_ROWS):
+            for c in range(TOF_GRID_COLS):
+                # Columns 0 to 7: -45 deg to +45 deg (left to right)
+                az = - (TOF_FOV_HORIZONTAL_DEG / 2.0) + (c + 0.5) * h_step
+                # Rows 0 to 7: +45 deg to -45 deg (top to bottom)
+                el = (TOF_FOV_VERTICAL_DEG / 2.0) - (r + 0.5) * v_step
+                self.zone_azimuth_deg[r, c] = az
+                self.zone_elevation_deg[r, c] = el
 
-def compensate_frame_raw(distance_mm):
-    """The 'WITHOUT ego-motion compensation' baseline for the ablation
-    study: azimuth/elevation come straight from the static zone table,
-    i.e. exactly as if the head had never moved."""
-    return {
-        "distance_mm": distance_mm,
-        "azimuth_deg": _ZONE_AZ_DEG.copy(),
-        "elevation_deg": _ZONE_EL_DEG.copy(),
-        "R": np.eye(3),
-    }
+    def raw_grid_to_sensor_vectors(self, depth_matrix_m: np.ndarray) -> List[SensorFrameVector]:
+        """Convert an 8x8 depth matrix into sensor-frame vectors. Skips NaN zones (no data)."""
+        vectors = []
+        for r in range(TOF_GRID_ROWS):
+            for c in range(TOF_GRID_COLS):
+                dist = float(depth_matrix_m[r, c])
+                # Skip zones with no valid reading — never invent fake data
+                if np.isnan(dist):
+                    continue
+                az_deg = float(self.zone_azimuth_deg[r, c])
+                el_deg = float(self.zone_elevation_deg[r, c])
 
+                az_rad = math.radians(az_deg)
+                el_rad = math.radians(el_deg)
 
-if __name__ == "__main__":
-    # Quick sanity check: a stationary obstacle dead ahead in the SENSOR
-    # frame (az=0) should read as az=+yaw in the torso frame once the head
-    # turns `yaw` degrees left — turning your head 30 deg left to look
-    # straight at something means that something is 30 deg to the left
-    # of your torso, which is exactly what R(theta_head) should recover.
-    for test_yaw in (0.0, 30.0, 90.0):
-        q = quat_from_yaw_pitch(test_yaw, 0.0)
-        R = quat_to_rotation_matrix(q)
-        v = _angles_to_unit_vectors(np.array(0.0), np.array(0.0))
-        v_torso = v @ R.T
-        az = np.degrees(np.arctan2(v_torso[1], v_torso[0]))
-        print(f"head_yaw={test_yaw:5.1f} deg -> obstacle appears at torso az={az:6.1f} deg")
+                # Spherical to Cartesian (Head Frame)
+                # x: lateral (right), y: forward, z: elevation (up)
+                x_head = dist * math.cos(el_rad) * math.sin(az_rad)
+                y_head = dist * math.cos(el_rad) * math.cos(az_rad)
+                z_head = dist * math.sin(el_rad)
+
+                vectors.append(SensorFrameVector(
+                    row=r,
+                    col=c,
+                    raw_distance_m=dist,
+                    azimuth_deg=az_deg,
+                    elevation_deg=el_deg,
+                    x_head=x_head,
+                    y_head=y_head,
+                    z_head=z_head,
+                ))
+        return vectors
+
+    def transform_to_torso_frame(
+        self,
+        sensor_vectors: List[SensorFrameVector],
+        head_yaw_deg: float,
+        head_pitch_deg: float = 0.0,
+    ) -> List[TorsoFrameVector]:
+        """
+        Re-project sensor-frame vectors to torso-frame using quaternion rotation.
+        
+        Head yaw rotation: turning head right (+yaw) means the head-fixed sensor
+        line-of-sight is at +yaw relative to torso. Obstacles on that line-of-sight
+        are therefore at +yaw relative to the user's torso walking direction.
+        """
+        yaw_rad = math.radians(head_yaw_deg)
+        pitch_rad = math.radians(head_pitch_deg)
+
+        # Quaternion representing head-to-torso coordinate transformation
+        # For a coordinate frame rotated by +yaw relative to torso,
+        # transforming coordinates from head frame to torso frame requires rotation by +yaw
+        # (p_torso = R_z(+yaw) * p_head with x_t = x_h*cos(yaw) + y_h*sin(yaw))
+        q_head_to_torso = Quaternion.from_euler(yaw_rad=-yaw_rad, pitch_rad=-pitch_rad)
+        R = q_head_to_torso.to_rotation_matrix()
+
+        torso_vectors = []
+        for sv in sensor_vectors:
+            p_head = np.array([sv.x_head, sv.y_head, sv.z_head], dtype=np.float64)
+            p_torso = np.dot(R, p_head)
+
+            x_t = float(p_torso[0])
+            y_t = float(p_torso[1])
+            z_t = float(p_torso[2])
+
+            dist_t = math.sqrt(x_t*x_t + y_t*y_t + z_t*z_t)
+            # Torso-frame azimuth: angle from torso forward axis (y) in horizontal plane (x-y)
+            az_torso_deg = math.degrees(math.atan2(x_t, max(y_t, 1e-6)))
+            # Torso-frame elevation
+            ground_dist = math.sqrt(x_t*x_t + y_t*y_t)
+            el_torso_deg = math.degrees(math.atan2(z_t, max(ground_dist, 1e-6)))
+
+            torso_vectors.append(TorsoFrameVector(
+                row=sv.row,
+                col=sv.col,
+                distance_m=dist_t,
+                x_torso=x_t,
+                y_torso=y_t,
+                z_torso=z_t,
+                azimuth_torso_deg=az_torso_deg,
+                elevation_torso_deg=el_torso_deg,
+                head_yaw_deg=head_yaw_deg,
+            ))
+
+        return torso_vectors
+
+    def process_frame(
+        self,
+        depth_matrix_m: np.ndarray,
+        head_yaw_deg: float,
+        head_pitch_deg: float = 0.0,
+    ) -> Tuple[List[SensorFrameVector], List[TorsoFrameVector]]:
+        """Complete pipeline: Raw 8x8 matrix -> Sensor vectors -> Torso-corrected vectors."""
+        sensor_vecs = self.raw_grid_to_sensor_vectors(depth_matrix_m)
+        torso_vecs = self.transform_to_torso_frame(sensor_vecs, head_yaw_deg, head_pitch_deg)
+        return sensor_vecs, torso_vecs

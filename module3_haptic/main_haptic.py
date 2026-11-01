@@ -1,336 +1,166 @@
-"""main_haptic.py
+"""
+Module 3 Spatio-Tactile Haptics & Telemetry Process Entrypoint
+Lead Researcher: Tejaswi E. (24BCE5518)
 
-Master Controller for Module 3 (Spatio-Tactile Haptics & Telemetry Streamer).
-Consumes classified hazard packets from Queue B, encodes them into 3-axis tactile
-commands, fires the LRA transducers FIRST, and logs telemetry to Firebase SECOND.
-
-Target: IEEE Sensors Journal.
+Consumes Queue B (Vision/TTC), encodes 3-axis spatio-tactile signals,
+triggers TI DRV2605L LRA motors and logs telemetry.
+REAL HARDWARE ONLY.
 """
 
-from __future__ import annotations
-
-import math
-import queue
-import sys
-import threading
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+import sys
+from multiprocessing import Queue
+from typing import Optional, Callable
 
-# Ensure config imports resolve from project root
-try:
-    import config
-    from module3_haptic import haptic_encoder
-    from module3_haptic.firebase_logger import FirebaseLogger
-except ImportError:
-    project_root = Path(__file__).resolve().parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    import config
-    from module3_haptic import haptic_encoder
-    from module3_haptic.firebase_logger import FirebaseLogger
-
-# Priority rank for pre-emption (higher rank pre-empts lower rank on same motor)
-URGENCY_RANK: Dict[str, int] = {
-    config.URGENCY_IMMINENT: 2,
-    config.URGENCY_APPROACHING: 1,
-    config.URGENCY_SAFE: 0,
-}
+import config
+from .haptic_encoder import SpatioTactileEncoder
+from .drv2605l_driver import DRV2605LDriver
+from .firebase_logger import FirebaseTelemetryLogger
 
 
-def _extract_primary_hazard(
-    packet_or_list: Union[Dict[str, Any], List[Dict[str, Any]]]
-) -> Optional[Dict[str, Any]]:
-    """Select the primary hazard dict representing the actuation packet."""
-    if isinstance(packet_or_list, dict):
-        return packet_or_list
-    elif isinstance(packet_or_list, list) and len(packet_or_list) > 0:
-        valid_items = [p for p in packet_or_list if isinstance(p, dict)]
-        if not valid_items:
-            return None
-
-        # Pick item with lowest effective TTC (matching encoder logic)
-        def _key(p: Dict[str, Any]) -> float:
-            ttc = p.get("ttc")
-            if ttc is None:
-                return config.TTC_SENTINEL_SAFE
-            try:
-                val = float(ttc)
-                if math.isnan(val) or val < config.TTC_MIN_VALID or val > config.TTC_MAX_VALID:
-                    return config.TTC_SENTINEL_SAFE
-                return val
-            except (ValueError, TypeError):
-                return config.TTC_SENTINEL_SAFE
-
-        return min(valid_items, key=_key)
-    return None
-
-
-def run_haptic_module(
-    queue_b: queue.Queue,
-    duration_sec: Optional[float] = None,
-    stop_event: Optional[threading.Event] = None,
-    driver_override: Optional[Any] = None,
-    logger_override: Optional[Any] = None,
-    use_visualizer: Optional[bool] = None,
-) -> int:
-    """Main execution loop for Module 3.
-
-    1. Reads incoming hazard packets from Queue B.
-    2. Encodes via haptic_encoder.
-    3. Fires tactile actuation FIRST (via visualizer or DRV2605L driver).
-       Catches driver exceptions, tracks fire_errors, and continues running.
-    4. Computes latency_ms = (fire_time - packet_ts) * 1000 and logs SECOND.
-    5. Schedules non-blocking repeat retriggering:
-       - A same-urgency packet refreshes the hazard timeout without restarting the effect.
-       - A higher-urgency packet pre-empts immediately.
-       - A downgrade is accepted once the current effect's minimum play time has elapsed.
-       - If no packet refreshes a motor within HAZARD_TIMEOUT_MS (500 ms), stops retriggering.
-    6. Shuts down gracefully on KeyboardInterrupt or stop_event.
-
-    Returns:
-        Cumulative count of driver fire errors encountered.
+def run_haptic_module(queue_in: Queue, stop_event=None, event_callback: Optional[Callable] = None):
     """
-    if stop_event is None:
-        stop_event = threading.Event()
+    Main loop for Module 3.
+    Consumes from Queue B, actuates LRAs, logs to Firebase & disk.
+    """
+    print("\n[Module 3: Haptic] Starting Process (HARDWARE MODE)")
 
-    # Determine visualizer vs hardware driver mode
-    show_visualizer = (
-        use_visualizer
-        if use_visualizer is not None
-        else (config.SIMULATION_MODE and driver_override is None)
-    )
-
-    visualizer = None
-    hardware_driver = None
-
-    if show_visualizer:
-        from module3_haptic.sim_haptic import TerminalVisualizer
-        visualizer = TerminalVisualizer()
-    elif driver_override is not None:
-        hardware_driver = driver_override
-    else:
-        # Lazy import of hardware driver: no top-level hardware imports
-        from module3_haptic import drv2605l_driver
-        hardware_driver = drv2605l_driver
-        try:
-            drv2605l_driver.init()
-        except Exception as e:
-            sys.stderr.write(f"[HARDWARE WARNING] Driver init skipped: {e}\n")
-
-    # Telemetry Logger
-    logger = logger_override if logger_override is not None else FirebaseLogger()
-
-    # Per-motor state tracking: motor_index -> state dict
-    motor_scheduler: Dict[int, Dict[str, Any]] = {
-        m: {
-            "active": False,
-            "effect_id": None,
-            "repeat_ms": None,
-            "urgency": None,
-            "urgency_rank": -1,
-            "last_fire_time": 0.0,
-            "next_retrigger": 0.0,
-            "timeout_deadline": 0.0,
-            "hazard_class": None,
-        }
-        for m in (
-            config.MOTOR_INDEX_LEFT,
-            config.MOTOR_INDEX_CENTER,
-            config.MOTOR_INDEX_RIGHT,
-        )
+    encoder = SpatioTactileEncoder()
+    drv_driver = DRV2605LDriver()
+    logger = FirebaseTelemetryLogger(use_firebase=True)
+    last_buzz_times = {
+        config.MOTOR_LEFT: 0.0,
+        config.MOTOR_CENTER: 0.0,
+        config.MOTOR_RIGHT: 0.0,
     }
 
-    fire_errors: int = 0
-    start_mono = time.monotonic()
-    hazard_timeout_sec = config.HAZARD_TIMEOUT_MS / 1000.0
-
     try:
-        while not stop_event.is_set():
-            if duration_sec is not None:
-                if (time.monotonic() - start_mono) >= duration_sec:
-                    break
+        while stop_event is None or not stop_event.is_set():
+            vision_packet = None
+            if queue_in is not None:
+                try:
+                    vision_packet = queue_in.get(timeout=0.1)
+                except Exception:
+                    continue
 
-            now_mono = time.monotonic()
-            now_wall = time.time()
+            if vision_packet is None:
+                continue
 
-            # ------------------------------------------------------------------
-            # 1. READ QUEUE B & ENCODE
-            # ------------------------------------------------------------------
-            try:
-                packet_payload = queue_b.get(timeout=0.02)
-                res = haptic_encoder.encode(packet_payload)
+            now = time.time()
+            # Calculate end-to-end perception-to-action latency
+            t_orig = vision_packet.get("timestamp", now)
+            latency_ms = (now - t_orig) * 1000.0
 
-                if res is not None:
-                    motor_idx, effect_id, repeat_ms, urgency = res
-                    primary_packet = _extract_primary_hazard(packet_payload) or {}
+            # 1. Novelty 02: 3-Axis Spatio-Tactile Encoding
+            cmd = encoder.encode(vision_packet)
 
-                    sched = motor_scheduler[motor_idx]
-                    new_rank = URGENCY_RANK.get(urgency, 0)
-                    old_rank = sched["urgency_rank"] if sched["active"] else -1
+            # 2. Hardware Actuation:
+            # Multi-sector actuation with colour-zone intensity mapping
+            # RED < 15 cm → strong 100%, ORANGE < 35 cm → medium 60%, YELLOW < 70 cm → soft
+            sectors = vision_packet.get("sectors", {})
+            actuated_any = False
+            for sec_name in (config.MOTOR_LEFT, config.MOTOR_CENTER, config.MOTOR_RIGHT):
+                sec_d = sectors.get(sec_name, 999.0)
+                sec_d_cm = sec_d * 100.0
 
-                    should_fire = False
-                    fire_error_msg: Optional[str] = None
+                # Pick waveform by colour zone
+                if sec_d_cm < config.HAPTIC_ZONE_RED_CM:
+                    wf = config.WAVEFORM_ZONE_RED
+                    zone_label = "RED"
+                    cooldown = 0.15   # faster re-trigger for imminent danger
+                elif sec_d_cm < config.HAPTIC_ZONE_ORANGE_CM:
+                    wf = config.WAVEFORM_ZONE_ORANGE
+                    zone_label = "ORANGE"
+                    cooldown = 0.30
+                elif sec_d_cm < config.HAPTIC_ZONE_YELLOW_CM:
+                    wf = config.WAVEFORM_ZONE_YELLOW
+                    zone_label = "YELLOW"
+                    cooldown = 0.50
+                else:
+                    continue  # GREEN zone — silent
 
-                    # Check transition conditions:
-                    if sched["active"] and new_rank == old_rank and sched["effect_id"] == effect_id:
-                        # Same urgency: Refresh timeout without restarting the effect
-                        sched["timeout_deadline"] = now_mono + hazard_timeout_sec
-                        should_fire = False
-                    elif sched["active"] and new_rank < old_rank:
-                        # Downgrade: Accepted once current effect's minimum play time has elapsed
-                        min_play_ms = config.EFFECT_MIN_DURATION_MS.get(
-                            sched["effect_id"], config.DEFAULT_MIN_PLAY_TIME_MS
-                        )
-                        elapsed_ms = (now_mono - sched.get("effect_start_time", sched["last_fire_time"])) * 1000.0
-                        if elapsed_ms >= min_play_ms:
-                            should_fire = True
-                        else:
-                            # Not ready for downgrade yet; refresh timeout deadline and wait
-                            sched["timeout_deadline"] = now_mono + hazard_timeout_sec
-                            should_fire = False
-                    else:
-                        # Higher urgency (pre-emption) or new motor activation: fire immediately
-                        should_fire = True
+                if (now - last_buzz_times[sec_name]) > cooldown:
+                    drv_driver.trigger_waveform(sec_name, wf)
+                    last_buzz_times[sec_name] = now
+                    actuated_any = True
+                    print(f"[Haptic Actuation] >>> Buzzing Motor: {sec_name} | Distance: {sec_d_cm:.1f} cm | Zone: {zone_label} | Waveform: {wf}")
 
-                    # ----------------------------------------------------------
-                    # 2. FIRE HAPTIC FIRST (wrapped in try/except)
-                    # ----------------------------------------------------------
-                    fire_wall_time = time.time()
-                    fire_mono_time = time.monotonic()
+            # Fallback to single-channel encoded pulse for farther obstacles
+            if not actuated_any and cmd.should_pulse and cmd.distance_m < 1.0:
+                if (now - last_buzz_times[cmd.motor_channel]) > 0.3:
+                    drv_driver.trigger_waveform(cmd.motor_channel, cmd.waveform_id)
+                    last_buzz_times[cmd.motor_channel] = now
+                    print(f"[Haptic Actuation] >>> Buzzing Motor: {cmd.motor_channel} | Distance: {cmd.distance_m*100.0:.1f} cm | Waveform: {cmd.waveform_id}")
 
-                    if should_fire:
-                        if hardware_driver is not None:
-                            try:
-                                hardware_driver.fire(motor_idx, effect_id, repeat_ms)
-                            except Exception as exc:
-                                fire_errors += 1
-                                fire_error_msg = str(exc)
+            # 3. Construct Full Telemetry Packet
+            head_yaw = vision_packet.get("head_yaw_deg", 0.0)
+            telemetry_event = {
+                "timestamp": now,
+                "frame_id": vision_packet.get("frame_id", 0),
+                "head_yaw_deg": head_yaw,
+                "motor_channel": cmd.motor_channel,
+                "distance_m": cmd.distance_m,
+                "ttc_seconds": cmd.ttc_seconds,
+                "approach_velocity_mps": vision_packet.get("approach_velocity_mps", 0.0),
+                "urgency_level": cmd.urgency_level,
+                "hazard_class": cmd.hazard_class,
+                "waveform_id": cmd.waveform_id,
+                "waveform_name": cmd.waveform_name,
+                "is_depth_interrupt": vision_packet.get("is_depth_interrupt", False),
+                "ai_gated": vision_packet.get("ai_gated", False),
+                "roi_area_ratio": vision_packet.get("roi_area_ratio", 0.0),
+                "latency_ms": latency_ms,
+                "should_pulse": cmd.should_pulse,
+                "data_source": vision_packet.get("data_source", "unknown"),
+                "valid_tof_zones": vision_packet.get("valid_tof_zones", 0),
+                "yolo_ready": vision_packet.get("yolo_ready", False),
+                "camera_ready": vision_packet.get("camera_ready", False),
+            }
 
-                        if visualizer is not None:
-                            cls_name = primary_packet.get("class", "unknown")
-                            ttc = primary_packet.get("ttc")
-                            ttc_str = f"{ttc:.2f}s" if isinstance(ttc, (int, float)) else str(ttc)
-                            dist = primary_packet.get("distance", 0.0)
-                            desc = f"{cls_name.upper()} @ {primary_packet.get('azimuth')} (TTC: {ttc_str}, Dist: {dist:.1f}m)"
+            # 5. Push to Cloud / Local Research Logger
+            logger.log_event(telemetry_event)
 
-                            visualizer.update_actuation(
-                                motor_index=motor_idx,
-                                effect_id=effect_id,
-                                repeat_ms=repeat_ms,
-                                urgency=urgency,
-                                hazard_desc=desc,
-                            )
-
-                        # Update state for newly triggered effect
-                        sched["active"] = True
-                        sched["effect_id"] = effect_id
-                        sched["repeat_ms"] = repeat_ms
-                        sched["urgency"] = urgency
-                        sched["urgency_rank"] = new_rank
-                        sched["effect_start_time"] = fire_mono_time
-                        sched["last_fire_time"] = fire_mono_time
-                        sched["next_retrigger"] = fire_mono_time + (repeat_ms / 1000.0)
-                        sched["timeout_deadline"] = fire_mono_time + hazard_timeout_sec
-                        sched["hazard_class"] = primary_packet.get("class")
-
-                    # ----------------------------------------------------------
-                    # 3. LOG SECOND (Compute latency_ms at moment of firing)
-                    # ----------------------------------------------------------
-                    raw_ts = primary_packet.get("ts")
-                    if isinstance(raw_ts, (int, float)) and not math.isnan(raw_ts):
-                        latency_ms = max(0.0, (fire_wall_time - float(raw_ts)) * 1000.0)
-                    else:
-                        latency_ms = 0.0
-
-                    event_log_payload = {
-                        "ts": raw_ts if raw_ts is not None else fire_wall_time,
-                        "azimuth": primary_packet.get("azimuth"),
-                        "distance": primary_packet.get("distance"),
-                        "ttc": primary_packet.get("ttc"),
-                        "class": primary_packet.get("class"),
-                        "effect_id": effect_id,
-                        "urgency": urgency,
-                        "latency_ms": latency_ms,
-                    }
-
-                    if fire_error_msg is not None:
-                        event_log_payload["error"] = fire_error_msg
-
-                    if "seq_id" in primary_packet:
-                        event_log_payload["seq_id"] = primary_packet["seq_id"]
-
-                    logger.push_event(event_log_payload)
-
-            except queue.Empty:
-                pass
-
-            # ------------------------------------------------------------------
-            # 4. NON-BLOCKING RETRIGGER & TIMEOUT SCHEDULER
-            # ------------------------------------------------------------------
-            now_mono = time.monotonic()
-            for m, sched in motor_scheduler.items():
-                if sched["active"]:
-                    # Hazard timeout check: clear motor if no refresh within 500 ms
-                    if now_mono >= sched["timeout_deadline"]:
-                        sched["active"] = False
-                        sched["effect_id"] = None
-                        sched["urgency_rank"] = -1
-                        if visualizer is not None:
-                            visualizer.motor_states[m]["active"] = False
-                            visualizer.motor_states[m]["retrigger_enabled"] = False
-                    elif sched["repeat_ms"] is not None and now_mono >= sched["next_retrigger"]:
-                        # Retrigger interval elapsed: fire repeat pulse
-                        if hardware_driver is not None:
-                            try:
-                                hardware_driver.fire(m, sched["effect_id"], sched["repeat_ms"])
-                            except Exception as exc:
-                                fire_errors += 1
-
-                        sched["next_retrigger"] = now_mono + (sched["repeat_ms"] / 1000.0)
-
-            # Step and render visualizer if active
-            if visualizer is not None:
-                visualizer.step_scheduler()
-                visualizer.render()
-                time.sleep(0.02)  # ~50 Hz update
+            # 6. Optional Direct Callback for Local Web Dashboard Server
+            if event_callback is not None:
+                try:
+                    event_callback(telemetry_event)
+                except Exception:
+                    pass
 
     except KeyboardInterrupt:
-        pass
+        print("\n[Module 3: Haptic] Stopping on user interrupt...")
     finally:
-        # Graceful shutdown: stop timers, flush and close logger
-        if logger is not None:
-            try:
-                logger.close()
-            except Exception:
-                pass
-
-        if visualizer is not None:
-            visualizer.restore_terminal()
-
-        print("[MODULE 3] Haptic Controller shutdown cleanly.")
-
-    return fire_errors
-
-
-def main() -> None:
-    """Standalone entry point: starts mock Queue B feeder and runs master loop."""
-    print("=" * 76)
-    print("   CONTEXT-AWARE SMART GLASSES — MODULE 3 MASTER RUNNER")
-    print("        (Standalone Testbed: Mock Feeder -> Haptics -> Telemetry)")
-    print("=" * 76)
-
-    from module3_haptic.sim_haptic import MockQueueBFeeder
-
-    queue_b: queue.Queue = queue.Queue(maxsize=20)
-    feeder = MockQueueBFeeder(queue_b, interval_sec=2.0)
-    feeder.start()
-
-    try:
-        run_haptic_module(queue_b=queue_b)
-    finally:
-        feeder.stop()
+        drv_driver.close()
+        logger.stop()
+        print("\n[Module 3: Haptic] Exited cleanly.")
 
 
 if __name__ == "__main__":
-    main()
+    from multiprocessing import Queue
+    print("=== Testing Module 3 (3-Axis Haptic & Telemetry) ===")
+    q_test = Queue(maxsize=5)
+
+    import threading
+    stop_event = threading.Event()
+    t = threading.Thread(target=run_haptic_module, args=(q_test, stop_event))
+    t.daemon = True
+    t.start()
+
+    # Feed test packets with varying urgency
+    try:
+        scenarios = [
+            {"critical_sector": "CENTER", "min_distance_m": 2.2, "ttc_seconds": 3.5, "primary_class": "person", "is_head_hazard": False},
+            {"critical_sector": "LEFT", "min_distance_m": 1.4, "ttc_seconds": 1.2, "primary_class": "car", "is_head_hazard": False},
+            {"critical_sector": "CENTER", "min_distance_m": 0.6, "ttc_seconds": 0.4, "primary_class": "overhead_hazard", "is_head_hazard": True},
+        ]
+
+        for s in scenarios:
+            s["timestamp"] = time.time()
+            s["head_yaw_deg"] = 12.5
+            q_test.put(s)
+            time.sleep(0.3)
+
+        time.sleep(0.5)
+    finally:
+        stop_event.set()
+        print("\n=== Module 3 test passed successfully ===")

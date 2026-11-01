@@ -1,243 +1,103 @@
-"""haptic_encoder.py
+"""
+Novelty 02: 3-Axis Spatio-Tactile Haptic Encoding Engine
+Lead Researcher: Tejaswi E. (24BCE5518)
 
-Core Spatio-Tactile Haptic Encoding Engine for Module 3.
-Converts classified hazard packets from Queue B into 3-axis tactile actuation commands:
-- Axis 1 (Azimuth): Left (motor 0), Center (motor 1), Right (motor 2)
-- Axis 2 (Urgency): Imminent (<0.8s), Approaching (0.8s - 2.0s), Safe (>2.0s or invalid)
-- Axis 3 (Class Texture): DRV2605L Library 6 ROM waveforms & repeat intervals
-
-Target: IEEE Sensors Journal.
+Concurrently modulates:
+  - Axis 1 (Spatial Azimuth): Directional neckband motor (Left, Center, Right)
+  - Axis 2 (Urgency via TTC): Pulse firing cadence (20 Hz buzz vs periodic ping)
+  - Axis 3 (Hazard Texture): TI DRV2605L waveform library selection
 """
 
-from __future__ import annotations
+import time
+from dataclasses import dataclass
+from typing import Optional, Dict
 
-import math
-import sys
-import threading
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-
-# Ensure config can be imported whether run from root or inside module3_haptic/
-try:
-    import config
-    from module3_haptic import waveform_map
-except ImportError:
-    project_root = Path(__file__).resolve().parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    import config
-    from module3_haptic import waveform_map
+from config import (
+    MOTOR_LEFT,
+    MOTOR_CENTER,
+    MOTOR_RIGHT,
+    TTC_IMMINENT_THRESHOLD_S,
+    TTC_APPROACHING_THRESHOLD_S,
+)
+from .waveform_map import select_tactile_waveform, WaveformMetadata
 
 
-class HapticEncoder:
-    """Encodes Queue B obstacle packets into tactile motor commands."""
+@dataclass
+class HapticCommand:
+    motor_channel: str          # "LEFT", "CENTER", "RIGHT"
+    waveform_id: int
+    waveform_name: str
+    urgency_level: str          # "IMMINENT", "APPROACHING", "SAFE"
+    pulse_cadence_hz: float     # Firing rate in Hz
+    should_pulse: bool          # True if cadence timer dictates firing now
+    ttc_seconds: float
+    distance_m: float
+    hazard_class: str
 
-    def __init__(self) -> None:
-        self._dropped_count: int = 0
-        self._lock: threading.Lock = threading.Lock()
 
-    def get_dropped_count(self) -> int:
-        """Return cumulative count of dropped or malformed packets."""
-        with self._lock:
-            return self._dropped_count
+class SpatioTactileEncoder:
+    """Translates high-level perception packets into multi-axis tactile signals."""
 
-    def reset_dropped_count(self) -> None:
-        """Reset the dropped packet counter to 0."""
-        with self._lock:
-            self._dropped_count = 0
-
-    def increment_dropped_count(self) -> None:
-        """Increment dropped packet counter safely."""
-        with self._lock:
-            self._dropped_count += 1
-
-    def compute_urgency(self, ttc: Optional[float]) -> str:
-        """Compute urgency category from Time-to-Collision (TTC) in seconds.
-
-        Rules:
-        - Treat ttc None, NaN, negative, or > 60 s as "safe".
-        - < 0.8 s: imminent
-        - 0.8 <= ttc <= 2.0: approaching (0.8 and 2.0 both count as approaching)
-        - > 2.0 s: safe
-        """
-        if ttc is None:
-            return config.URGENCY_SAFE
-
-        try:
-            val = float(ttc)
-        except (ValueError, TypeError):
-            return config.URGENCY_SAFE
-
-        if math.isnan(val) or val < config.TTC_MIN_VALID or val > config.TTC_MAX_VALID:
-            return config.URGENCY_SAFE
-
-        if val < config.TTC_IMMINENT_THRESHOLD:
-            return config.URGENCY_IMMINENT
-        elif val <= config.TTC_APPROACHING_MAX:
-            return config.URGENCY_APPROACHING
-        else:
-            return config.URGENCY_SAFE
-
-    def _get_effective_ttc(self, ttc: Optional[float]) -> float:
-        """Calculate effective TTC for sorting priority.
-
-        Lower TTC = higher priority.
-        None, NaN, negative, or > 60s are treated as safe (lowest priority -> inf).
-        """
-        if ttc is None:
-            return config.TTC_SENTINEL_SAFE
-
-        try:
-            val = float(ttc)
-        except (ValueError, TypeError):
-            return config.TTC_SENTINEL_SAFE
-
-        if math.isnan(val) or val < config.TTC_MIN_VALID or val > config.TTC_MAX_VALID:
-            return config.TTC_SENTINEL_SAFE
-
-        return val
-
-    def validate_packet(self, packet: Any) -> bool:
-        """Validate packet structure, types, and values against Queue B specification.
-
-        Expected schema:
-        {
-            "ts": float,
-            "azimuth": "L" | "C" | "R",
-            "distance": float (m),
-            "ttc": float | None (s),
-            "class": "person" | "vehicle" | "overhead" | "wall",
-            "elevation": "head" | "ground"
+    def __init__(self):
+        # Track last pulse timestamp per motor channel
+        self.last_pulse_times: Dict[str, float] = {
+            MOTOR_LEFT: 0.0,
+            MOTOR_CENTER: 0.0,
+            MOTOR_RIGHT: 0.0,
         }
+
+    def encode(self, vision_packet: dict) -> HapticCommand:
         """
-        if not isinstance(packet, dict):
-            return False
-
-        # Required fields presence
-        for key in config.REQUIRED_PACKET_KEYS:
-            if key not in packet:
-                return False
-
-        # Timestamp validation
-        ts = packet["ts"]
-        if not isinstance(ts, (int, float)) or (isinstance(ts, float) and math.isnan(ts)):
-            return False
-
-        # Distance validation
-        dist = packet["distance"]
-        if not isinstance(dist, (int, float)) or (isinstance(dist, float) and math.isnan(dist)):
-            return False
-
-        # Elevation validation
-        if packet["elevation"] not in config.VALID_ELEVATIONS:
-            return False
-
-        # Azimuth validation (Axis 1)
-        if packet["azimuth"] not in config.VALID_AZIMUTHS:
-            return False
-
-        # Class validation: Unknown class must NOT default to person; drop packet
-        hazard_class = packet["class"]
-        if not isinstance(hazard_class, str) or not waveform_map.is_valid_hazard_class(hazard_class):
-            return False
-
-        # TTC validation (numeric or None)
-        ttc = packet["ttc"]
-        if ttc is not None:
-            if not isinstance(ttc, (int, float)):
-                return False
-
-        return True
-
-    def encode(
-        self, packet_or_list: Union[Dict[str, Any], List[Dict[str, Any]], None]
-    ) -> Optional[Tuple[int, int, int, str]]:
-        """Encode a hazard packet or list of packets into a tactile actuation command.
-
-        Parameters:
-            packet_or_list: A single Queue B packet dict, or a list of packet dicts.
-
-        Returns:
-            (motor_index, effect_id, repeat_ms, urgency)
-            or None if the packet is dropped, malformed, or no valid hazard exists.
+        Takes vision/TTC packet and generates 3-axis spatio-tactile actuation command.
         """
-        if packet_or_list is None:
-            self.increment_dropped_count()
-            return None
+        now = time.time()
 
-        # Handle list of hazard packets
-        if isinstance(packet_or_list, list):
-            if len(packet_or_list) == 0:
-                return None
+        # Axis 1: Azimuth Motor Selection
+        motor = vision_packet.get("critical_sector", MOTOR_CENTER)
+        if motor not in (MOTOR_LEFT, MOTOR_CENTER, MOTOR_RIGHT):
+            motor = MOTOR_CENTER
 
-            valid_packets = []
-            for item in packet_or_list:
-                if self.validate_packet(item):
-                    valid_packets.append(item)
-                else:
-                    self.increment_dropped_count()
+        ttc = float(vision_packet.get("ttc_seconds", 99.0))
+        dist = float(vision_packet.get("min_distance_m", 4.0))
+        hazard_class = vision_packet.get("primary_class", "generic_obstacle")
+        is_overhead = vision_packet.get("is_head_hazard", False)
 
-            if not valid_packets:
-                return None
+        # Axis 2: Urgency Classification & Cadence Modulation
+        if ttc < TTC_IMMINENT_THRESHOLD_S:
+            urgency = "IMMINENT"
+            cadence_hz = 20.0     # 20 Hz rapid buzz
+            min_interval = 0.05   # 50 ms
+        elif ttc <= TTC_APPROACHING_THRESHOLD_S:
+            urgency = "APPROACHING"
+            cadence_hz = 4.0      # 4 Hz double-pulse cadence
+            min_interval = 0.25   # 250 ms
+        else:
+            urgency = "SAFE"
+            cadence_hz = 1.0      # 1 Hz gentle presence ping
+            min_interval = 1.0    # 1000 ms
 
-            # Pick hazard with lowest effective TTC (None = inf / highest TTC)
-            chosen_packet = min(
-                valid_packets, key=lambda p: self._get_effective_ttc(p.get("ttc"))
-            )
-            return self._encode_single_valid_packet(chosen_packet)
+        # Axis 3: Tactile Texture Selection from DRV2605L ROM Library
+        waveform_meta: WaveformMetadata = select_tactile_waveform(
+            hazard_class=hazard_class,
+            urgency_level=urgency,
+            is_overhead=is_overhead,
+        )
 
-        # Handle single hazard packet
-        if not self.validate_packet(packet_or_list):
-            self.increment_dropped_count()
-            return None
+        # Check cadence interval
+        last_fired = self.last_pulse_times[motor]
+        should_pulse = (now - last_fired) >= min_interval
 
-        return self._encode_single_valid_packet(packet_or_list)
+        if should_pulse:
+            self.last_pulse_times[motor] = now
 
-    def _encode_single_valid_packet(
-        self, packet: Dict[str, Any]
-    ) -> Optional[Tuple[int, int, int, str]]:
-        """Encode a pre-validated packet into a tactile tuple."""
-        azimuth = packet["azimuth"]
-        hazard_class = packet["class"]
-        ttc = packet["ttc"]
-
-        # Axis 1: Motor routing
-        motor_index = config.AZIMUTH_TO_MOTOR[azimuth]
-
-        # Axis 2: Urgency classification
-        urgency = self.compute_urgency(ttc)
-
-        # Axis 3: Tactile waveform lookup
-        effect_pair = waveform_map.resolve_haptic_effect(hazard_class, urgency)
-        if effect_pair is None:
-            self.increment_dropped_count()
-            return None
-
-        effect_id, repeat_ms = effect_pair
-        return (motor_index, effect_id, repeat_ms, urgency)
-
-
-# Global singleton instance for functional module-level API
-_DEFAULT_ENCODER = HapticEncoder()
-
-
-def encode(
-    packet_or_list: Union[Dict[str, Any], List[Dict[str, Any]], None]
-) -> Optional[Tuple[int, int, int, str]]:
-    """Encode packet or list using global encoder instance."""
-    return _DEFAULT_ENCODER.encode(packet_or_list)
-
-
-def validate_packet(packet: Any) -> bool:
-    """Validate packet structure against Queue B specification."""
-    return _DEFAULT_ENCODER.validate_packet(packet)
-
-
-def get_dropped_count() -> int:
-    """Return count of dropped packets from global encoder."""
-    return _DEFAULT_ENCODER.get_dropped_count()
-
-
-def reset_dropped_count() -> None:
-    """Reset dropped packet count on global encoder."""
-    _DEFAULT_ENCODER.reset_dropped_count()
+        return HapticCommand(
+            motor_channel=motor,
+            waveform_id=waveform_meta.id,
+            waveform_name=waveform_meta.name,
+            urgency_level=urgency,
+            pulse_cadence_hz=cadence_hz,
+            should_pulse=should_pulse,
+            ttc_seconds=ttc,
+            distance_m=dist,
+            hazard_class=hazard_class,
+        )

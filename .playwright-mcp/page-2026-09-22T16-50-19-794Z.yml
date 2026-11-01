@@ -1,0 +1,155 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "CONTEXT-AWARE SMART GLASSES" [level=2] [ref=e6]
+      - paragraph [ref=e7]: Caregiver & Academic Research Portal
+    - generic [ref=e8]:
+      - button "🔬 Researcher" [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: 🔬
+        - text: Researcher
+      - button "🩺 Caregiver" [ref=e11] [cursor=pointer]:
+        - generic [ref=e12]: 🩺
+        - text: Caregiver
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Username or Email
+        - generic [ref=e16]:
+          - generic: 👤
+          - textbox "Username or Email" [ref=e17]:
+            - /placeholder: e.g. researcher or andrea@smartglasses.io
+      - generic [ref=e18]:
+        - generic [ref=e19]: Password
+        - generic [ref=e20]:
+          - generic: 🔒
+          - textbox "Password" [ref=e21]:
+            - /placeholder: Enter password
+          - button "👁️" [ref=e22] [cursor=pointer]
+      - button "Sign In to Dashboard" [ref=e23] [cursor=pointer]
+      - generic [ref=e25]: OR 1-CLICK QUICK ACCESS
+      - generic [ref=e27]:
+        - button "⚡ Login as Lead Researcher" [ref=e28] [cursor=pointer]:
+          - generic [ref=e29]: ⚡
+          - text: Login as Lead Researcher
+        - button "⚡ Login as Primary Caregiver" [ref=e30] [cursor=pointer]:
+          - generic [ref=e31]: ⚡
+          - text: Login as Primary Caregiver
+  - generic:
+    - banner:
+      - generic:
+        - generic:
+          - heading "CONTEXT-AWARE SMART GLASSES" [level=1]
+          - paragraph: Kinematic Ego-Motion & Spatio-Tactile Assistive Ecosystem
+      - generic:
+        - generic: ONLINE
+        - generic:
+          - generic: "MODE:"
+          - generic: SIMULATION (Zero-HW)
+        - generic:
+          - generic: "LATENCY:"
+          - generic: 18.4 ms
+        - generic:
+          - generic: "BATTERY:"
+          - generic: 88% (3.9V)
+        - generic:
+          - generic: "SESSION:"
+          - generic: 00:00:00
+        - generic:
+          - generic: 🔬
+          - generic:
+            - generic: Andrea A.
+            - generic: Lead Researcher
+          - button "⏻ Logout":
+            - generic: ⏻
+            - text: Logout
+    - main:
+      - generic:
+        - generic:
+          - generic:
+            - generic: 🧭
+            - heading "180° Spatial Radar & Head Kinematics" [level=2]
+          - generic:
+            - generic: "Head Yaw:"
+            - strong: +0.0°
+            - generic: (Torso Corrected)
+        - generic:
+          - generic:
+            - generic: LEFT (0-2)
+            - generic: CENTER (3-4)
+            - generic: RIGHT (5-7)
+        - generic:
+          - generic:
+            - generic: Critical Obstacle
+            - generic: "-- m"
+          - generic:
+            - generic: Interrupt Gate
+            - generic: IDLE
+          - generic:
+            - generic: Compute Savings
+            - generic: "--%"
+      - generic:
+        - generic:
+          - generic:
+            - generic: 📳
+            - heading "Neckband 3-Axis Spatio-Tactile Node Visualizer" [level=2]
+          - generic: SAFE
+        - generic:
+          - generic:
+            - generic: L
+            - generic: LEFT
+            - generic: IDLE
+          - generic:
+            - generic: C
+            - generic: CENTER
+            - generic: IDLE
+          - generic:
+            - generic: R
+            - generic: RIGHT
+            - generic: IDLE
+        - generic:
+          - generic:
+            - generic: "Active Waveform:"
+            - strong: Strong Click - 100% (#1)
+          - generic:
+            - generic: "Firing Cadence:"
+            - generic: 1.0 Hz (Gentle Ping)
+          - generic:
+            - generic: "Time-to-Collision (TTC):"
+            - generic: "-- s"
+      - generic:
+        - generic:
+          - generic:
+            - generic: 📋
+            - heading "Live Hazard Detection Stream" [level=2]
+          - generic: 0 Events
+        - generic:
+          - table:
+            - rowgroup:
+              - row "TIME CLASS SECTOR DISTANCE TTC WAVEFORM URGENCY":
+                - columnheader "TIME"
+                - columnheader "CLASS"
+                - columnheader "SECTOR"
+                - columnheader "DISTANCE"
+                - columnheader "TTC"
+                - columnheader "WAVEFORM"
+                - columnheader "URGENCY"
+            - rowgroup
+      - generic:
+        - generic:
+          - generic:
+            - generic: 📊
+            - heading "Session Analytics & Publication Data" [level=2]
+          - generic:
+            - button "📥 Export CSV":
+              - generic: 📥
+              - text: Export CSV
+            - button "📄 Export JSON":
+              - generic: 📄
+              - text: Export JSON
+        - generic:
+          - generic:
+            - heading "Hazard Class Distribution" [level=3]
+          - generic:
+            - heading "TTC vs Approach Distance" [level=3]
+    - contentinfo:
+      - generic: "Project Team: Andrea A. (24BCE1142) · Dhivyashree G J. (24BCE1516) · Tejaswi E. (24BCE5518)"
+      - generic: "Target: IEEE Sensors Journal / MDPI Sensors"

@@ -1,0 +1,107 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e6]:
+      - heading "CONTEXT-AWARE SMART GLASSES" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Kinematic Ego-Motion & Spatio-Tactile Assistive Ecosystem
+    - generic [ref=e9]:
+      - generic [ref=e10]: ONLINE
+      - generic [ref=e13]:
+        - generic [ref=e14]: "MODE:"
+        - generic [ref=e15]: SIMULATION (Zero-HW)
+      - generic [ref=e16]:
+        - generic [ref=e17]: "LATENCY:"
+        - generic [ref=e18]: 18.4 ms
+      - generic [ref=e19]:
+        - generic [ref=e20]: "BATTERY:"
+        - generic [ref=e21]: 88% (3.9V)
+      - generic [ref=e22]:
+        - generic [ref=e23]: "SESSION:"
+        - generic [ref=e24]: 00:00:00
+  - main [ref=e25]:
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: 🧭
+          - heading "180° Spatial Radar & Head Kinematics" [level=2] [ref=e30]
+        - generic [ref=e31]:
+          - generic [ref=e32]: "Head Yaw:"
+          - strong [ref=e33]: +0.0°
+          - generic [ref=e34]: (Torso Corrected)
+      - generic [ref=e37]:
+        - generic [ref=e38]: LEFT (0-2)
+        - generic [ref=e39]: CENTER (3-4)
+        - generic [ref=e40]: RIGHT (5-7)
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]: Critical Obstacle
+          - generic [ref=e44]: "-- m"
+        - generic [ref=e45]:
+          - generic [ref=e46]: Interrupt Gate
+          - generic [ref=e47]: IDLE
+        - generic [ref=e48]:
+          - generic [ref=e49]: Compute Savings
+          - generic [ref=e50]: "--%"
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - generic [ref=e54]: 📳
+          - heading "Neckband 3-Axis Spatio-Tactile Node Visualizer" [level=2] [ref=e55]
+        - generic [ref=e56]: SAFE
+      - generic [ref=e57]:
+        - generic [ref=e58]:
+          - generic [ref=e59]: L
+          - generic [ref=e61]: LEFT
+          - generic [ref=e62]: IDLE
+        - generic [ref=e63]:
+          - generic [ref=e64]: C
+          - generic [ref=e66]: CENTER
+          - generic [ref=e67]: IDLE
+        - generic [ref=e68]:
+          - generic [ref=e69]: R
+          - generic [ref=e71]: RIGHT
+          - generic [ref=e72]: IDLE
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]: "Active Waveform:"
+          - strong [ref=e76]: Strong Click - 100% (#1)
+        - generic [ref=e77]:
+          - generic [ref=e78]: "Firing Cadence:"
+          - generic [ref=e79]: 1.0 Hz (Gentle Ping)
+        - generic [ref=e80]:
+          - generic [ref=e81]: "Time-to-Collision (TTC):"
+          - generic [ref=e82]: "-- s"
+    - generic [ref=e83]:
+      - generic [ref=e84]:
+        - generic [ref=e85]:
+          - generic [ref=e86]: 📋
+          - heading "Live Hazard Detection Stream" [level=2] [ref=e87]
+        - generic [ref=e88]: 0 Events
+      - table [ref=e90]:
+        - rowgroup [ref=e91]:
+          - row [ref=e92]:
+            - columnheader "TIME" [ref=e93]
+            - columnheader "CLASS" [ref=e94]
+            - columnheader "SECTOR" [ref=e95]
+            - columnheader "DISTANCE" [ref=e96]
+            - columnheader "TTC" [ref=e97]
+            - columnheader "WAVEFORM" [ref=e98]
+            - columnheader "URGENCY" [ref=e99]
+        - rowgroup
+    - generic [ref=e100]:
+      - generic [ref=e101]:
+        - generic [ref=e102]:
+          - generic [ref=e103]: 📊
+          - heading "Session Analytics & Publication Data" [level=2] [ref=e104]
+        - generic [ref=e105]:
+          - button "📥 Export CSV" [ref=e106] [cursor=pointer]:
+            - generic [ref=e107]: 📥
+            - text: Export CSV
+          - button "📄 Export JSON" [ref=e108] [cursor=pointer]:
+            - generic [ref=e109]: 📄
+            - text: Export JSON
+      - generic [ref=e110]:
+        - heading "Hazard Class Distribution" [level=3] [ref=e112]
+        - heading "TTC vs Approach Distance" [level=3] [ref=e115]
+  - contentinfo [ref=e117]:
+    - generic [ref=e118]: "Project Team: Andrea A. (24BCE1142) · Dhivyashree G J. (24BCE1516) · Tejaswi E. (24BCE5518)"
+    - generic [ref=e119]: "Target: IEEE Sensors Journal / MDPI Sensors"

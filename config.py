@@ -1,88 +1,110 @@
 """
-Global configuration for the Context-Aware Smart Glasses project.
-Shared across module1_sensor, module2_vision, module3_haptic and dashboard.
+Global Configuration and Constants for Context-Aware Smart Glasses System.
+Hardware mode ONLY (Raspberry Pi 4) — no simulation, no synthetic data.
 """
 
-# ---------------------------------------------------------------------------
-# Global run mode
-# ---------------------------------------------------------------------------
-SIMULATION_MODE = True  # Flip to False once the Pi 4 + sensors are wired up
+import os
+from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# I2C bus addresses (locked BOM, Section 3 of PROJECT_PLAN.md)
-# ---------------------------------------------------------------------------
-I2C_BUS_NUM = 1
-VL53L5CX_I2C_ADDR = 0x29
-MPU6050_I2C_ADDR = 0x68
-DRV2605L_I2C_ADDR = 0x5A  # used by Module 3
+# Base Directory
+BASE_DIR = Path(__file__).resolve().parent
 
-# ---------------------------------------------------------------------------
-# Module 1 — Sensor Fusion & Ego-Motion (Andrea)
-# ---------------------------------------------------------------------------
-TOF_GRID_SIZE = 8                # 8x8 = 64 zones
-TOF_FOV_DEG = 90.0                # VL53L5CX field of view
-TOF_RATE_HZ = 30
-IMU_RATE_HZ = 100
-FUSION_LOOP_HZ = 100              # main_sensor.py loop rate (IMU-paced; ToF frame held between updates)
+# ==============================================================================
+# OPERATION & POWER MODES
+# ==============================================================================
+# Power Mode: "LOW" (ToF depth + haptics only, camera/AI off ~0.5W)
+#             "HIGH" (ToF depth + dynamic Camera ROI + YOLOv8n vehicle classification)
+POWER_MODE = os.getenv("POWER_MODE", "HIGH").upper()
 
-# Zone binning thresholds (kept for reference; zone_classifier.py bins by
-# CORRECTED angle, not raw row/col, but these show the raw-grid intuition)
-AZIMUTH_LEFT_COLS = (0, 1, 2)
-AZIMUTH_CENTER_COLS = (3, 4)
-AZIMUTH_RIGHT_COLS = (5, 6, 7)
-ELEVATION_HEAD_ROWS = (0, 1, 2, 3)     # top half of the 8x8 grid = head-height hazards
-ELEVATION_GROUND_ROWS = (4, 5, 6, 7)   # bottom half = ground obstacles
+# ==============================================================================
+# HARDWARE I2C & PIN CONFIGURATION (Raspberry Pi 4)
+# ==============================================================================
+I2C_BUS_ID = 1
 
-# Complementary filter
-COMPLEMENTARY_ALPHA = 0.98  # weight on gyro integration vs accel correction
+# I2C Addresses (Standard default 7-bit addresses)
+VL53L7CX_I2C_ADDR = 0x29   # ST VL53L7CX 8x8 Multizone Time-of-Flight LiDAR
+VL53L5CX_I2C_ADDR = VL53L7CX_I2C_ADDR  # Backwards compatibility alias
+MPU6050_I2C_ADDR = 0x68    # 6-Axis IMU (Gyroscope + Accelerometer) — WHO_AM_I chip ID is 0x70 (MPU6500 revision), I2C address is 0x68
+DRV2605L_I2C_ADDR = 0x5A   # TI Haptic Driver (123 ROM Waveforms)
+PCA9548A_I2C_ADDR = 0x70   # PCA9548A 8-Channel I2C Multiplexer
 
-# Inter-process queues (used by main.py / main_sensor.py)
-QUEUE_MAXSIZE = 10
+# Actuator Channels / LRA Motor Identifiers
+MOTOR_LEFT = "LEFT"
+MOTOR_CENTER = "CENTER"
+MOTOR_RIGHT = "RIGHT"
+ALL_MOTORS = [MOTOR_LEFT, MOTOR_CENTER, MOTOR_RIGHT]
 
-# ---------------------------------------------------------------------------
-# Module 2 — Dual-Stage AI Vision & Time-to-Collision (Dhivyashree)
-# ---------------------------------------------------------------------------
-# Stage 1: Spatial Interrupt Depth Gating (Novelty 03)
-DEPTH_THRESHOLD_M = 2.0  # meters. If all 64 zones > 2.0m, camera & AI sleep
-TOF_MAX_RANGE_M = 4.0    # ST VL53L5CX max physical distance (meters)
+# Motor Type: "LRA" (Linear Resonant Actuators) or "ERM" (DC eccentric coin vibration discs)
+HAPTIC_MOTOR_TYPE = os.getenv("HAPTIC_MOTOR_TYPE", "LRA").upper()
 
-TOF_ROWS = 8
-TOF_COLS = 8
+PCA9548A_CHANNELS = {
+    MOTOR_LEFT: 6,    # Channel 6 (SD6/SC6): Left Haptic Driver (0x5B)
+    MOTOR_CENTER: 1,  # Channel 1 (SD1/SC1): Middle/Center Haptic Driver (0x5A)
+    MOTOR_RIGHT: 2,   # Channel 2 (SD2/SC2): Right Haptic Driver (0x5A)
+}
+
+# GPIO Pinout for DRV2605L EN / Trigger pins or Multi-channel PWM (BCM numbering)
+GPIO_LRA_LEFT = 17
+GPIO_LRA_CENTER = 27
+GPIO_LRA_RIGHT = 22
+
+# Optional GPIO wiring for hardware interrupts (BCM numbering)
+MPU6050_INT_GPIO = 4          # physical pin 7
+VL53L7CX_LPN_GPIO = 24        # physical pin 18 (LPn Low Power / Reset)
+VL53L7CX_INT_GPIO = 25        # physical pin 22 (Data Ready Interrupt)
+
+# ==============================================================================
+# SENSOR & SAMPLING FREQUENCIES
+# ==============================================================================
+IMU_SAMPLE_RATE_HZ = 100    # 100 Hz kinematic tracking
+TOF_SAMPLE_RATE_HZ = 30     # 30 Hz multizone depth matrix
+# The validated Python ULD backend needs about 0.15–0.20 s for a real VL53L7CX
+# 8x8 frame on the shared I2C bus. This avoids polling faster than it can respond.
+TOF_HARDWARE_RANGING_HZ = int(os.getenv("TOF_HARDWARE_RANGING_HZ", "5"))
+VISION_MAX_FPS = 15         # Dynamic ROI YOLOv8n inference cap on Pi 4
+
+TOF_GRID_ROWS = 8
+TOF_GRID_COLS = 8
 TOF_TOTAL_ZONES = 64
+TOF_FOV_HORIZONTAL_DEG = 90.0  # Horizontal Field of View (45 deg either side)
+TOF_FOV_VERTICAL_DEG = 90.0    # Vertical Field of View (45 deg elevation span)
+TOF_MAX_RANGE_METERS = 4.0     # Maximum physical measurement range
 
-# Azimuth sector mapping (0..7 columns)
-AZIMUTH_SECTOR_MAP = {
-    "Left": list(range(0, 3)),     # cols 0, 1, 2
-    "Center": list(range(3, 5)),   # cols 3, 4
-    "Right": list(range(5, 8)),    # cols 5, 6, 7
-}
+# ==============================================================================
+# NOVELTY 01: KINEMATICS & EGO-MOTION PARAMETERS
+# ==============================================================================
+COMPLEMENTARY_FILTER_ALPHA = 0.98   # Weight for gyro vs accelerometer integration
+MAX_COMPENSATED_YAW_DEG = 90.0      # Maximum expected head rotation angle
 
-# Elevation binning (0..7 rows)
-ELEVATION_MAP = {
-    "HeadHazard": list(range(0, 4)),     # top 4 rows
-    "GroundObstacle": list(range(4, 8)), # bottom 4 rows
-}
+# Spatial Azimuth Binning (Columns 0 to 7)
+# Columns 0-2: Left, Columns 3-4: Center, Columns 5-7: Right
+SECTOR_LEFT_COLS = (0, 1, 2)
+SECTOR_CENTER_COLS = (3, 4)
+SECTOR_RIGHT_COLS = (5, 6, 7)
 
-# Camera & Dynamic ROI Cropping Configuration
+# Vertical Elevation Binning (Rows 0 to 7)
+# Rows 0-3: Head-height & overhanging hazards
+# Rows 4-7: Ground-level & descending obstacles
+ELEVATION_HEAD_ROWS = (0, 1, 2, 3)
+ELEVATION_GROUND_ROWS = (4, 5, 6, 7)
+
+# ==============================================================================
+# NOVELTY 03: DUAL-STAGE SPATIAL INTERRUPT GATING
+# ==============================================================================
+# Depth interrupt threshold: If all zones > 1.0m, camera & YOLOv8 remain idle
+DEPTH_INTERRUPT_THRESHOLD_M = 1.0
+
+# Camera Resolution
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
-CAMERA_INDEX = 0
-ROI_PADDING_RATIO = 0.15
 
-# Time-to-Collision (TTC) Kinematics (Novelty 02)
-TTC_WINDOW_SIZE = 5
-TTC_IMMINENT_THRESHOLD_S = 0.8     # TTC < 0.8s: High urgency imminent collision
-TTC_APPROACHING_THRESHOLD_S = 2.0  # 0.8s <= TTC <= 2.0s: Approaching hazard
-MIN_APPROACH_VELOCITY_MPS = 0.05
+# Dynamic ROI Margin (padding added to cropped box in pixels)
+ROI_PADDING_PX = 20
 
-# YOLOv8 Nano Inference Configuration
-YOLO_MODEL_NAME = "yolov8n.pt"
-YOLO_CONFIDENCE_THRESHOLD = 0.35
-YOLO_IMG_SIZE = 320
-
-# Navigation hazard target COCO classes
-TARGET_COCO_CLASSES = {
+# YOLOv8 Target Classes (COCO indices prioritized for pedestrian safety)
+# 0: person, 1: bicycle, 2: car, 3: motorcycle, 5: bus, 7: truck
+YOLO_TARGET_CLASSES = {
     0: "person",
     1: "bicycle",
     2: "car",
@@ -90,71 +112,58 @@ TARGET_COCO_CLASSES = {
     5: "bus",
     7: "truck",
 }
+YOLO_MODEL_NAME = os.getenv("YOLO_MODEL_NAME", str(BASE_DIR / "yolov8n.pt"))
+YOLO_CONFIDENCE_THRESHOLD = 0.40
+YOLO_IMAGE_SIZE = int(os.getenv("YOLO_IMAGE_SIZE", "416"))
 
-# ---------------------------------------------------------------------------
-# Module 3 — Spatio-Tactile Haptics & Firebase Telemetry (Tejaswi)
-# ---------------------------------------------------------------------------
-MOTOR_INDEX_LEFT = 0
-MOTOR_INDEX_CENTER = 1
-MOTOR_INDEX_RIGHT = 2
+# ==============================================================================
+# NOVELTY 02: TIME-TO-COLLISION (TTC) & SPATIO-TACTILE ENCODING
+# ==============================================================================
+TTC_ROLLING_WINDOW_SIZE = 5      # Rolling frame window for approach rate dv/dt
+TTC_MIN_VELOCITY_MPS = 0.01      # Minimum approach velocity clamp to avoid div by zero
 
-AZIMUTH_TO_MOTOR = {"L": 0, "C": 1, "R": 2}
-VALID_AZIMUTHS = {"L", "C", "R"}
-VALID_ELEVATIONS = {"head", "ground"}
-REQUIRED_PACKET_KEYS = {"ts", "azimuth", "distance", "ttc", "class", "elevation"}
+# TTC Urgency Boundaries
+TTC_IMMINENT_THRESHOLD_S = 0.8    # < 0.8s: Imminent collision -> High-rate sharp buzz
+TTC_APPROACHING_THRESHOLD_S = 2.0 # 0.8s - 2.0s: Approaching -> Double-click pulse
+                                  # > 2.0s: Safe situational awareness -> Gentle pulse
 
-URGENCY_IMMINENT = "imminent"
-URGENCY_APPROACHING = "approaching"
-URGENCY_SAFE = "safe"
-SUPPORTED_URGENCIES = {"imminent", "approaching", "safe"}
-SUPPORTED_CLASSES = {"person", "vehicle", "overhead", "wall"}
+# DRV2605L ROM Waveform Presets (from 123-effect library)
+WAVEFORM_SAFE_AWARENESS = 2        # "Strong Click - 60%"
+WAVEFORM_APPROACHING_ALERT = 49    # "Buzz 3 - 60% Medium Buzz"
+WAVEFORM_IMMINENT_COLLISION = 49   # "Buzz 3 - 60% Medium Buzz"
+WAVEFORM_OVERHEAD_HAZARD = 15      # "Medium Click 1 - 100%"
+WAVEFORM_PERSON_SOFT = 64          # "Transition Hum 1 - 100%"
+WAVEFORM_VEHICLE_SHARP = 49        # "Buzz 3 - 60% Medium Buzz"
 
-TTC_SENTINEL_SAFE = float("inf")
-TTC_MIN_VALID = 0.0
-TTC_MAX_VALID = 60.0
-TTC_IMMINENT_THRESHOLD = 0.8
-TTC_APPROACHING_MAX = 2.0
+# ==============================================================================
+# NOVELTY 02: DISTANCE-TO-COLOUR HAPTIC INTENSITY MAPPING
+# Matches the terminal depth matrix colour coding:
+#   RED    < HAPTIC_ZONE_RED_CM    → strongest buzz (imminent)
+#   ORANGE < HAPTIC_ZONE_ORANGE_CM → medium buzz    (close)
+#   YELLOW < HAPTIC_ZONE_YELLOW_CM → soft click     (approaching)
+#   GREEN  ≥ HAPTIC_ZONE_YELLOW_CM → no buzz        (safe)
+# ==============================================================================
+HAPTIC_ZONE_RED_CM    = 15   # cm — Red zone threshold
+HAPTIC_ZONE_ORANGE_CM = 35   # cm — Orange zone threshold
+HAPTIC_ZONE_YELLOW_CM = 70   # cm — Yellow zone threshold
 
-HAZARD_TIMEOUT_MS = 500
-DEFAULT_MIN_PLAY_TIME_MS = 150
-EFFECT_MIN_DURATION_MS = {15: 750, 16: 1000}
+WAVEFORM_ZONE_RED    = 49   # "Buzz 3 - 60% Medium" — reduced from 100% strong
+WAVEFORM_ZONE_ORANGE = 52   # "Pulsing Strong 1" — soft pulse
+WAVEFORM_ZONE_YELLOW = 2    # "Strong Click - 60%" — very gentle tap
+# Green zone: no waveform, motors silent
 
-# DRV2605L Library 6 (LRA) ROM Waveforms: (effect_id, repeat_interval_ms)
-WAVEFORM_TABLE = {
-    "person": {
-        "imminent": (7, 250),    # Soft Bump 100%
-        "approaching": (8, 500), # Soft Bump 60%
-        "safe": (9, 1000),       # Soft Bump 30%
-    },
-    "vehicle": {
-        "imminent": (4, 200),    # Sharp Click 100%
-        "approaching": (5, 400), # Sharp Click 60%
-        "safe": (6, 800),        # Sharp Click 30%
-    },
-    "overhead": {
-        "imminent": (16, 1100),  # 1000ms Alert 100%
-        "approaching": (15, 850),# 750ms Alert 100%
-        "safe": (10, 1000),      # Double Click 100%
-    },
-    "wall": {
-        "imminent": (10, 300),   # Double Click 100%
-        "approaching": (11, 600),# Double Click 60%
-        "safe": (3, 1000),       # Strong Click 30%
-    },
-}
+# ==============================================================================
+# TELEMETRY & CLOUD CONFIGURATION
+# ==============================================================================
+LOCAL_LOG_DIR = BASE_DIR / "logs"
+LOCAL_TELEMETRY_FILE = LOCAL_LOG_DIR / "telemetry_events.jsonl"
+LOCAL_LOG_DIR.mkdir(exist_ok=True)
 
-# DRV2605L Hardware Registers
-REG_MODE = 0x01
-MODE_INTERNAL_TRIGGER = 0x00
-REG_LIBRARY_SEL = 0x03
-DRV2605L_LIBRARY = 0x06
-REG_WAVEFORM_SEQ_1 = 0x04
-REG_GO = 0x0C
-GO_FIRE = 0x01
-REG_FEEDBACK_CTRL = 0x1A
-FEEDBACK_LRA_BIT = 0x80
+# Firebase Realtime Database
+FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", str(BASE_DIR / "firebase_credentials.json"))
+FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL", "https://smart-glasses-telemetry-default-rtdb.firebaseio.com")
+FIREBASE_BATCH_INTERVAL_S = 0.2  # 200 ms batch push interval
 
-# Firebase Telemetry Configuration
-SESSION_ID = "session_001"
-FIREBASE_CRED_PATH = "serviceAccountKey.json"
-FIREBASE_DB_URL = "https://context-smart-glasses-default-rtdb.firebaseio.com"
+# Dashboard Local Server
+DASHBOARD_HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8080"))
