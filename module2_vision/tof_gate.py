@@ -56,18 +56,33 @@ class ToFInterruptGate:
 
     def evaluate_gate(self, depth_matrix_m: np.ndarray) -> Tuple[bool, Optional[RegionOfInterest]]:
         """
-        Check if any zone in 8x8 matrix is closer than depth threshold.
+        Check if depth matrix meets the smart wake-up rule:
+          1. At least 1 RED cell (< 0.30m) -> Camera wakes up immediately!
+          2. At least 7 YELLOW cells (0.30m - 1.00m) -> Camera wakes up!
+          3. If only 1-6 yellow cells and 0 red cells -> Camera stays ASLEEP.
         Returns:
             (is_triggered, roi_or_none)
         """
-        # Boolean mask of hazardous zones (NaN zones are NOT hazards — they are empty)
-        hazard_mask = np.isfinite(depth_matrix_m) & (depth_matrix_m < self.threshold_m)
+        valid_mask = np.isfinite(depth_matrix_m) & (depth_matrix_m > 0.05)
 
-        if not np.any(hazard_mask):
-            # All obstacles are > 2.0m: Keep camera & AI idle
+        # RED cells: < 0.30m (30 cm)
+        red_mask = valid_mask & (depth_matrix_m < 0.30)
+        num_red = int(np.sum(red_mask))
+
+        # YELLOW cells: 0.30m to 1.00m (30 cm to 100 cm)
+        yellow_mask = valid_mask & (depth_matrix_m >= 0.30) & (depth_matrix_m <= 1.00)
+        num_yellow = int(np.sum(yellow_mask))
+
+        # Smart wake-up condition:
+        # Either at least 1 RED cell OR at least 7 YELLOW cells
+        should_wake = (num_red >= 1) or (num_yellow >= 7)
+
+        if not should_wake:
+            # Camera stays asleep (ignores isolated 1-6 yellow noise cells)
             return False, None
 
-        # Find row and col bounds of active zones
+        # ROI is computed from all cells closer than 1.0m
+        hazard_mask = red_mask | yellow_mask
         rows, cols = np.where(hazard_mask)
         min_r, max_r = int(np.min(rows)), int(np.max(rows))
         min_c, max_c = int(np.min(cols)), int(np.max(cols))

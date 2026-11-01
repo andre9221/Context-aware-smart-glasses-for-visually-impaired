@@ -101,9 +101,6 @@ class ZoneClassifier:
             # Elevation check: positive elevation angle indicates head/overhead hazard
             is_head = closest_v.elevation_torso_deg > self.elevation_split_deg
 
-            if haz_count > 0:
-                interrupt_active = True
-
             if min_d < min_overall_dist:
                 min_overall_dist = min_d
                 critical_sec = sec_name
@@ -116,6 +113,13 @@ class ZoneClassifier:
                 is_head_hazard=is_head,
                 mean_distance_m=mean_d,
             )
+
+        # Smart wake-up condition:
+        # 1 RED cell (<0.30m) OR at least 7 YELLOW cells (0.30m - 1.00m)
+        all_dists = [v.distance_m for v in torso_vectors if 0.05 < v.distance_m < 4.0]
+        num_red = sum(1 for d in all_dists if d < 0.30)
+        num_yellow = sum(1 for d in all_dists if 0.30 <= d <= 1.00)
+        interrupt_active = (num_red >= 1) or (num_yellow >= 7)
 
         return SpatialClassificationResult(
             sectors=sectors_summary,
