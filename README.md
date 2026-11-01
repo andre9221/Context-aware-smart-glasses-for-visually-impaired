@@ -12,131 +12,126 @@
 
 ## 1. System Overview & Core Novelties
 
-This repository contains the complete software ecosystem for context-aware smart glasses designed for assistive navigation. It solves three major limitations found in commercial assistive glasses ($2,500+) and academic prototypes:
+This repository contains the complete physical edge software ecosystem for context-aware smart glasses designed for assistive pedestrian navigation. It solves three major limitations found in commercial assistive glasses ($2,500+) and academic prototypes:
 
 1. **Novelty 01: Head-to-Torso Kinematic Transform ($R(\theta_{\text{head}})$):**
-   - Head-mounted sensors (8×8 ToF) rotate when the user turns their head, misdirecting torso-worn haptic actuators.
-   - A real-time **quaternion rotation matrix at 100 Hz** re-projects all 64 depth vectors into the fixed torso reference frame, yielding **100% azimuth routing accuracy** across the operational field-of-view (vs. 14.3% uncompensated).
+   - Head-mounted sensors (8×8 ToF) rotate when the user turns their head, which in traditional systems causes false alerts (e.g., turning to check a crosswalk falsely buzzes the "forward" motor for a shop window).
+   - An onboard **quaternion rotation matrix at 100 Hz** re-projects all 64 depth vectors from the head-mounted sensor frame into the fixed torso reference frame, yielding **100% azimuth routing accuracy** across the operational field-of-view (vs. 14.3% uncompensated).
 2. **Novelty 02: Multi-Axis Spatio-Tactile Encoding:**
-   - Simultaneously conveys **Azimuth** (Left/Center/Right LRA) × **Urgency** (Time-to-Collision $TTC = \frac{d}{\Delta d/\Delta t}$) × **Tactile Texture** (123 waveforms from TI DRV2605L ROM library) without acoustic sensory deprivation.
-3. **Novelty 03: Dual-Stage Spatial Interrupt Gating:**
-   - 8×8 ToF operates as a low-power hardware depth pre-filter (<2.0m threshold).
-   - Only when triggered does the camera wake up to crop a dynamic **Region of Interest (ROI)** for YOLOv8n, saving **>70% compute power** and extending battery life by >3.5× on commodity Raspberry Pi 4 hardware.
+   - Simultaneously conveys **Azimuth** (Left/Center/Right LRA) × **Urgency** (Distance Colour Zones & Time-to-Collision $TTC = \frac{d}{\Delta d/\Delta t}$) × **Tactile Texture** (TI DRV2605L ROM waveforms) without acoustic sensory deprivation.
+   - Dynamically mapped colour zones:
+     - 🔴 **RED (< 15 cm):** Waveform 49 (60% Buzz) — Imminent collision alert.
+     - 🟠 **ORANGE (15 – 35 cm):** Waveform 52 (Pulsing Strong) — Approaching obstacle.
+     - 🟡 **YELLOW (35 – 70 cm):** Waveform 2 (Strong Click 60%) — Gentle awareness pulse.
+     - 🟢 **GREEN (> 70 cm):** Silent — Clear walking corridor.
+3. **Novelty 03: Dual-Stage Spatial Depth-Interrupt Gating:**
+   - The ST VL53L7CX 8×8 ToF operates as a low-power hardware depth pre-filter.
+   - **Smart Wake-up Condition**: Camera and YOLOv8n neural networks wake up **ONLY** if:
+     - At least **1 RED cell** (< 30 cm) is detected, OR
+     - At least **7 YELLOW cells** (30 cm – 100 cm) are detected (filtering out single-cell transient noise).
+   - When awake, YOLOv8n infers only on a dynamic cropped **Region of Interest (ROI)** around the obstacle cluster, saving **>70% compute power** and drastically reducing thermal load on Raspberry Pi 4.
 
 ---
 
-## 2. Repository Architecture
+## 2. Hardware Wiring & Architecture (Raspberry Pi 4)
+
+All sensors communicate over Raspberry Pi I2C Bus 1 (`/dev/i2c-1`):
+
+| Device | Model | I2C Address | Notes |
+|---|---|---|---|
+| **8×8 Multizone ToF** | ST VL53L7CX | `0x29` | 64 zones up to 4m, LPn on GPIO 24 |
+| **6-Axis IMU** | InvenSense MPU6050 | `0x68` | WHO_AM_I `0x70` (MPU6500 silicon rev) |
+| **I2C Multiplexer** | TI PCA9548A | `0x70` | 8-channel multiplexer |
+| **Left Haptic Driver** | TI DRV2605L | `0x5A` (Mux CH6) | Left Temple LRA Motor |
+| **Center Haptic Driver** | TI DRV2605L | `0x5A` (Mux CH1) | Center Bridge LRA Motor |
+| **Right Haptic Driver** | TI DRV2605L | `0x5A` (Mux CH2) | Right Temple LRA Motor |
+| **CSI Camera** | Sony IMX219 / Pi Cam | CSI Ribbon | 640×480 @ 30 FPS Dynamic ROI |
+
+---
+
+## 3. Repository Architecture
 
 ```text
 ES_Software/
-├── config.py                      # Global configuration, thresholds, and SIMULATION_MODE flag
-├── main.py                        # Multi-process orchestrator (Queues A & B)
+├── config.py                      # Global hardware pinouts, addresses, and thresholds
+├── main.py                        # Multi-process orchestrator (Sensors, Vision, Haptics, Dashboard)
 ├── requirements.txt               # Dependencies
 ├── .env.example                   # Telemetry & Firebase environment template
 │
 ├── module1_sensor/                # Andrea A. (Sensor Fusion & Ego-Motion)
-│   ├── tof_driver.py              # ST VL53L7CX I2C acquisition (8x8 @ 30 Hz)
-│   ├── imu_driver.py              # MPU6050 I2C acquisition & Complementary Filter (100 Hz)
+│   ├── tof_driver.py              # ST VL53L7CX hardware driver with status filtering
+│   ├── imu_driver.py              # MPU6050 14-byte atomic read & stationary gyro calibration
 │   ├── ego_motion.py              # Novelty 01: Quaternion R(θ) head-to-torso re-projection
-│   ├── zone_classifier.py         # Spatial binning (Left/Center/Right + Head/Ground bands)
-│   ├── sim_sensor.py              # Synthetic depth & sinusoidal yaw sweep generator
+│   ├── zone_classifier.py         # Spatial binning & smart depth gating (1 Red / 7 Yellow)
 │   └── main_sensor.py             # Process entry: runs fusion loop and pushes to Queue A
 │
 ├── module2_vision/                # Dhivyashree G J. (AI Vision & TTC)
-│   ├── tof_gate.py                # Novelty 03: Stage 1 depth gate (<2.0m) & ROI mapper
-│   ├── camera_driver.py           # Camera wrapper (Pi Camera CSI / OpenCV USB / Synthetic)
+│   ├── tof_gate.py                # Novelty 03: Dual-stage interrupt gating & ROI mapper
+│   ├── camera_driver.py           # Picamera2 hardware CSI wrapper (640x480)
 │   ├── yolo_engine.py             # YOLOv8n inference on dynamic cropped ROI
-│   ├── ttc_engine.py              # Novelty 02: Rolling 5-frame approach velocity & TTC
-│   ├── class_map.py               # Class filtering & severity weighting
-│   ├── sim_vision.py              # Laptop webcam mock vision testbed with OpenCV overlays
-│   └── main_vision.py             # Process entry: Queue A -> AI/TTC -> Queue B
+│   ├── ttc_engine.py              # Novelty 02: Approach velocity & Time-To-Collision
+│   ├── class_map.py               # COCO hazard priority filtering
+│   └── main_vision.py             # Process entry: Queue A -> AI/TTC -> Queue B + Live Video Queue
 │
 ├── module3_haptic/                # Tejaswi E. (Haptics & Telemetry)
-│   ├── drv2605l_driver.py         # TI DRV2605L I2C control & ROM waveform triggering
+│   ├── drv2605l_driver.py         # TI DRV2605L multiplexed driver & auto-calibration
 │   ├── haptic_encoder.py          # Novelty 02: 3-axis spatio-tactile mapping
 │   ├── waveform_map.py            # DRV2605L 123-waveform library mapping
-│   ├── firebase_logger.py         # Firebase Realtime DB async streamer + local CSV logger
-│   ├── sim_haptic.py              # Terminal animated visualizer for neckband LRAs
-│   └── main_haptic.py             # Process entry: Queue B -> Haptics + Firebase push
+│   ├── firebase_logger.py         # Realtime DB streamer + local research logger
+│   └── main_haptic.py             # Process entry: Queue B -> Multi-sector LRA actuation
 │
 ├── dashboard/                     # Tejaswi E. (Caregiver & Researcher Web App)
-│   ├── index.html                 # Dark glassmorphic UI: status, 180° radar, LRA nodes, event log
+│   ├── index.html                 # Glassmorphic UI: live camera feed, 8x8 radar, LRA pulses
 │   ├── style.css                  # Obsidian dark theme (#0B0F19), cyan/emerald glows
-│   ├── app.js                     # Real-time radar, neckband pulse visualizer, CSV export
-│   └── server.py                  # Local HTTP + SSE telemetry server (FastAPI/Uvicorn)
+│   ├── app.js                     # Real-time WebSockets / SSE telemetry client
+│   └── server.py                  # Local HTTP + MJPEG video feed server (FastAPI/Uvicorn)
 │
-└── scripts/                       # Research Validation & Benchmark Suite
+└── scripts/                       # Research Validation & Hardware Utility Suite
     ├── ablation_study.py          # Automated evaluation: WITH vs WITHOUT ego-motion
-    └── latency_benchmark.py       # End-to-end pipeline latency profiling
+    ├── latency_benchmark.py       # End-to-end pipeline latency profiling
+    ├── test_all_hardware.py       # Unified bench test for all sensors & motors
+    ├── scan_all_8_channels.py     # Live diagnostic I2C bus scanner
+    └── cycle_all_motors.py        # Independent LRA motor buzz test
 ```
 
 ---
 
-## 3. Quickstart: Zero-Hardware Simulation Mode
+## 4. Running the System on Raspberry Pi 4
 
-The software includes a zero-hardware simulation testbed so anyone can run and test the complete system on a PC/laptop without physical sensors:
-
-### Step 1: Install Dependencies
+### Step 1: Activate Environment & Reset Sensors
 ```bash
-pip install -r requirements.txt
+cd ~/smart_glasses
+source venv/bin/activate
+pinctrl set 24 op dh
 ```
 
-### Step 2: Run End-to-End Pipeline
+### Step 2: Launch Full Hardware Pipeline
 ```bash
-python main.py --sim
+python3 main.py --real --dashboard
 ```
-This spawns all three processes concurrently, passing synthetic 8×8 depth matrices, sinusoidal head yaw sweeps, dynamic ROI vision gating, and live console neckband LRA pulses.
 
-### Step 3: Launch Web Dashboard
-In a separate terminal or using the `--dashboard` flag:
-```bash
-python dashboard/server.py
-```
-Open **[http://127.0.0.1:8080](http://127.0.0.1:8080)** in your browser to view:
-- **180° Top-Down Spatial Radar** with live head-yaw needle compensation.
-- **Neckband 3-Node Visualizer** pulsing green/yellow/red with active DRV2605L waveform names.
-- **Live Hazard Stream Table** tracking distance, TTC, and sector.
-- **1-Click CSV/JSON Export** to download empirical research datasets.
+### Step 3: Access Live Guardian / Researcher Dashboard
+Open your browser on any laptop or phone connected to the same Wi-Fi:
+- **URL:** `http://<PI_IP_ADDRESS>:8080` (e.g., `http://192.168.137.172:8080`)
+- **Login Credentials:**
+  - Researcher: `researcher` / `Glasses2026!`
+  - Caregiver: `caregiver` / `Caregiver2026!`
 
 ---
 
-## 4. Physical Hardware Deployment (Raspberry Pi 4)
+## 5. Paper Reproducibility & Benchmarks
 
-When deploying on physical hardware (Raspberry Pi 5 / 4):
-1. Connect sensor breakout boards to Raspberry Pi I2C bus 1:
-   - **ST VL53L7CX:** 3.3V, GND, SDA (GPIO 2), SCL (GPIO 3) -> Address `0x29`
-   - **InvenSense MPU6050:** 3.3V, GND, SDA (GPIO 2), SCL (GPIO 3) -> Address `0x68`
-   - **TI DRV2605L:** 3.3V, GND, SDA (GPIO 2), SCL (GPIO 3) -> Address `0x5A`
-   - **Linear Resonant Actuators (LRAs):** Connected to DRV2605L output / multiplexer for Left, Center, Right channels.
-   - **Camera:** Raspberry Pi Camera Module connected via CSI ribbon.
-2. In `config.py` (or using `--real` flag), set:
-   ```python
-   SIMULATION_MODE = False
-   ```
-3. Run the pipeline:
-   ```bash
-   python main.py --real
-   ```
-
----
-
-## 5. Paper Reproducibility & Research Benchmarks
-
-### 1. Novelty 01 Ablation Study
-To reproduce the empirical table comparing obstacle azimuth tracking **WITH vs WITHOUT** ego-motion compensation:
+### 1. Novelty 01 Ablation Study (Ego-Motion Compensation)
 ```bash
-python scripts/ablation_study.py
+python3 scripts/ablation_study.py
 ```
-**Empirical Findings:**
-- Azimuth Routing Accuracy WITHOUT Ego-Motion: **14.3%** (Baseline)
-- Azimuth Routing Accuracy WITH Ego-Motion: **100.0%** (Proposed Novelty 01)
-- Mean Angular Error Reduction: **86.0%** (from 24.91° to 3.48°)
+- **Azimuth Routing Accuracy WITHOUT Ego-Motion:** 14.3% (Baseline)
+- **Azimuth Routing Accuracy WITH Ego-Motion:** 100.0% (Novelty 01)
+- **Mean Angular Error Reduction:** 86.0% (from 24.91° to 3.48°)
 
 ### 2. Latency & Real-Time Profiler
-To measure sub-millisecond execution times across each module:
 ```bash
-python scripts/latency_benchmark.py
+python3 scripts/latency_benchmark.py
 ```
-**Empirical Findings:**
-- Total Pipeline Processing Latency: **~1.06 ms** (Throughput: **>900 Hz**)
-- Far exceeding the real-time threshold ($\le 30.0\text{ ms}$).
+- **Total Pipeline Latency:** ~1.06 ms (Throughput: >900 Hz)
+- Fully satisfies real-time human perception threshold ($\le 30.0\text{ ms}$).
